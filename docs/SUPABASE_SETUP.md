@@ -55,7 +55,7 @@ Setup checklist (Supabase dashboard):
 
 Local dev callback URL used by the web app:
 
-- `http://localhost:3001/auth/callback.html`
+- `http://localhost:3002/auth/callback.html`
 
 Also ensure your Discord app OAuth2 redirect URL list includes the same callback URL.
 

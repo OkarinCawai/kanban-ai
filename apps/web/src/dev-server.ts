@@ -39,7 +39,7 @@ const server = createServer((req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
-const port = Number(process.env.PORT ?? 3001);
+const port = Number(process.env.PORT ?? 3002);
 server.listen(port, () => {
   process.stdout.write(`Web app running at http://localhost:${port}\n`);
 });

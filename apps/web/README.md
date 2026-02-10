@@ -8,7 +8,7 @@
 2. Start web static server:
    - `npm run start --workspace @kanban/web`
 3. Open:
-   - `http://localhost:3001`
+   - `http://localhost:3002`
 
 ## Notes
 
