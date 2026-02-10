@@ -10,8 +10,16 @@ node_modules/
 dist/
 build/
 .next/
+out/
 coverage/
 .turbo/
+.cache/
+*.tsbuildinfo
+.eslintcache
+
+# Package manager / deploy caches
+.pnpm-store/
+.vercel/
 
 # Logs
 *.log
