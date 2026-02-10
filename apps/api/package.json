@@ -8,7 +8,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "node dist/src/main.js",
+    "start": "cross-env DOTENV_CONFIG_PATH=../../.env node dist/src/main.js",
     "test": "npm run build --workspace @kanban/contracts && npm run build --workspace @kanban/core && npm run build --workspace @kanban/adapters && npm run build && cross-env DOTENV_CONFIG_PATH=../../.env node -r dotenv/config --test --test-isolation=none \"dist/test/**/*.test.js\"",
     "lint": "echo No lint configured for @kanban/api"
   },
