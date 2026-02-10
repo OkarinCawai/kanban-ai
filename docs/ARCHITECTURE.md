@@ -8,7 +8,7 @@
 
 - `apps/api`
   - Source of truth for business rules and authorization checks before write orchestration.
-  - Issues custom JWT after Discord OAuth.
+  - Validates Supabase Auth sessions/JWTs and maps auth users to internal user/org context.
   - Writes outbox events with domain mutations in the same transaction.
 
 - `apps/worker`
@@ -52,8 +52,8 @@ Not allowed:
 ## 4) Data and Security Flow
 
 1. User authenticates with Discord OAuth.
-2. API issues custom JWT with scoped claims.
-3. Request path uses user JWT for DB access under RLS.
+2. Supabase Auth completes callback code exchange and returns a user session.
+3. API validates user JWT/session context and executes request path under RLS-scoped access.
 4. API writes domain change + outbox in one transaction.
 5. Worker processes outbox/jobs and emits side effects.
 

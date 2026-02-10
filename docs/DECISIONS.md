@@ -16,7 +16,7 @@ Newest decision with same topic supersedes older entries.
 - Date: 2026-02-10
 - Status: `accepted`
 - Context: Project requires DB-level enforcement, not only API checks.
-- Decision: Use custom JWT claims recognized by Supabase; request-path DB access must execute under user-scoped JWT.
+- Decision: Request-path DB access must execute under user-scoped JWT claims.
 - Consequences: Avoid service-role bypass in normal user flows.
 
 ## D-002: Hexagonal architecture is mandatory
@@ -74,6 +74,13 @@ Newest decision with same topic supersedes older entries.
 - Context: M1 requires outbox-atomic writes while preserving RLS as primary enforcement.
 - Decision: Use a Postgres adapter that executes request-path transactions with `SET LOCAL ROLE authenticated` and request claim session variables (`request.jwt.claim.*`).
 - Consequences: API can keep transactional domain+outbox guarantees while enforcing organization/role isolation via RLS policies.
+
+## D-010: Adopt Supabase Auth Discord social login for M2
+- Date: 2026-02-10
+- Status: `accepted`
+- Context: Product direction request is to use Supabase Auth social login for Discord (provider setup, callback flow, and PKCE exchange).
+- Decision: Plan M2 around Supabase Auth Discord provider (`/auth/v1/callback`) and session exchange flow (`signInWithOAuth` + `exchangeCodeForSession` on callback route).
+- Consequences: Replaces previous custom Discord OAuth -> internal JWT login path for user sign-in.
 
 ## Template for new decisions
 

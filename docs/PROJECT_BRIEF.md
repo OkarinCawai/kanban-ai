@@ -10,7 +10,7 @@ Build a Trello-like Kanban system with:
 - Supabase Postgres + RLS as the security boundary.
 
 Supabase responsibilities are database, storage, and vector search.
-Auth is Discord OAuth plus custom JWT, not Supabase Auth.
+Auth uses Supabase Auth Discord social login for user authentication.
 
 ## 1) In Scope (MVP)
 
@@ -50,22 +50,17 @@ Hexagonal rule:
 RLS must be primary enforcement, not an optional backstop.
 
 Decision:
-- Use custom JWT accepted by Supabase.
-- Discord OAuth in API creates/links internal user.
-- API issues signed JWT with claims:
-  - `sub`: internal user UUID
-  - `discord_user_id`
-  - `org_id` (request-scoped org)
-  - `role` (optional coarse app role)
-  - `iat`, `exp`, `jti`
+- Use Supabase Auth Discord provider for user login.
+- OAuth flow uses PKCE with callback code exchange (`exchangeCodeForSession`).
+- API validates Supabase-issued JWTs and maps auth users to internal user/org context.
 
 Access pattern:
 - User request paths must use user-scoped JWT for DB reads/writes that rely on RLS.
 - Service-role access is reserved for system maintenance/background operations and must be controlled.
 
-Token policy:
+Token/session policy:
 - Short-lived access tokens.
-- Refresh token rotation and revocation support.
+- Secure refresh/session handling.
 - Session invalidation path for logout/compromise.
 
 ## 5) Data Model (High-Level)

@@ -27,15 +27,18 @@ Exit criteria:
 
 ## Milestone 2: Discord Auth + Core Commands
 
+Status (2026-02-10): `planned`
+
 Deliverables:
-- Discord OAuth flow in API.
-- Internal JWT issuing and refresh flow.
+- Supabase Auth Discord provider configuration and callback URL setup.
+- PKCE OAuth flow (`signInWithOAuth`) and callback code exchange (`exchangeCodeForSession`).
+- Session handling strategy across web + API request paths.
 - Discord identity linking (`/connect`).
 - `/my tasks`, `/card create`, `/card move`.
 - Guild/channel mapping endpoints and schema.
 
 Exit criteria:
-- Discord user can link account and operate cards from Discord.
+- Discord user can complete Supabase Auth Discord login and operate cards from Discord.
 - Commands use API contracts only, no duplicated business logic.
 
 ## Milestone 3: AI Summaries + Ask-the-Board

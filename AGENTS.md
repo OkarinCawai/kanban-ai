@@ -31,7 +31,7 @@ Build a Trello-like Kanban platform where:
 
 3. Security
 - Supabase RLS is the primary data enforcement layer.
-- Auth is Discord OAuth -> internal JWT -> Supabase-compatible JWT claims.
+- Auth uses Supabase Auth with Discord social login for user authentication.
 - Request-path data access must be user-scoped (not service-role bypass).
 
 4. Reliability
@@ -45,15 +45,15 @@ Build a Trello-like Kanban platform where:
 
 ## Required Auth Model
 
-- Do not use Supabase Auth for user login.
-- API issues custom JWT after Discord OAuth.
-- Required JWT claims:
-  - `sub` (internal user UUID)
-  - `discord_user_id`
-  - `org_id` (scoped org for request) or equivalent scoped claim
+- Use Supabase Auth Discord provider for sign-in.
+- Web login flow must use OAuth + PKCE (`signInWithOAuth`) with callback code exchange (`exchangeCodeForSession`).
+- API must validate Supabase-issued user JWTs and map auth users to internal user/org context.
+- Required effective request context for authorization:
+  - Supabase auth user id (`sub`)
+  - `org_id` (scoped org for request) or equivalent scoped claim/context
   - `role` (optional coarse role)
-  - `iat`, `exp`, `jti`
-- Enforce short-lived access tokens and refresh token rotation.
+  - standard token claims (`iat`, `exp`)
+- Keep access tokens short-lived and use secure session/refresh handling.
 
 ## Required Data/Processing Patterns
 
