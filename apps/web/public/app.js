@@ -2,7 +2,9 @@ const state = {
   boardId: null,
   lists: [],
   cards: [],
-  dragCardId: null
+  dragCardId: null,
+  accessToken: null,
+  authUserId: null
 };
 
 const dom = {
@@ -10,6 +12,11 @@ const dom = {
   userId: document.getElementById("userId"),
   orgId: document.getElementById("orgId"),
   role: document.getElementById("role"),
+  supabaseUrl: document.getElementById("supabaseUrl"),
+  supabaseKey: document.getElementById("supabaseKey"),
+  loginDiscordBtn: document.getElementById("loginDiscordBtn"),
+  logoutBtn: document.getElementById("logoutBtn"),
+  authUserId: document.getElementById("authUserId"),
   boardTitle: document.getElementById("boardTitle"),
   createBoardBtn: document.getElementById("createBoardBtn"),
   boardId: document.getElementById("boardId"),
@@ -21,6 +28,11 @@ const dom = {
   cardTemplate: document.getElementById("cardTemplate")
 };
 
+const STORAGE_KEYS = {
+  supabaseUrl: "kanban.supabaseUrl",
+  supabaseKey: "kanban.supabaseKey"
+};
+
 const log = (message, payload) => {
   const line = payload
     ? `[${new Date().toISOString()}] ${message} ${JSON.stringify(payload)}`
@@ -28,12 +40,21 @@ const log = (message, payload) => {
   dom.log.textContent = `${line}\n${dom.log.textContent}`.trim();
 };
 
-const authHeaders = () => ({
-  "Content-Type": "application/json",
-  "x-user-id": dom.userId.value.trim(),
-  "x-org-id": dom.orgId.value.trim(),
-  "x-role": dom.role.value
-});
+const authHeaders = () => {
+  const headers = {
+    "Content-Type": "application/json",
+    "x-org-id": dom.orgId.value.trim(),
+    "x-role": dom.role.value
+  };
+
+  if (state.accessToken) {
+    headers.Authorization = `Bearer ${state.accessToken}`;
+  } else {
+    headers["x-user-id"] = dom.userId.value.trim();
+  }
+
+  return headers;
+};
 
 const callApi = async (path, method, body) => {
   const response = await fetch(`${dom.apiUrl.value}${path}`, {
@@ -61,6 +82,93 @@ const appendPosition = (cards) => {
   }
 
   return cards[cards.length - 1].position + 1024;
+};
+
+const persistSupabaseConfig = () => {
+  const url = dom.supabaseUrl.value.trim();
+  const key = dom.supabaseKey.value.trim();
+
+  if (url) {
+    localStorage.setItem(STORAGE_KEYS.supabaseUrl, url);
+  }
+  if (key) {
+    localStorage.setItem(STORAGE_KEYS.supabaseKey, key);
+  }
+};
+
+const hydrateSupabaseConfig = () => {
+  const url = localStorage.getItem(STORAGE_KEYS.supabaseUrl);
+  const key = localStorage.getItem(STORAGE_KEYS.supabaseKey);
+
+  if (url && !dom.supabaseUrl.value.trim()) {
+    dom.supabaseUrl.value = url;
+  }
+  if (key && !dom.supabaseKey.value.trim()) {
+    dom.supabaseKey.value = key;
+  }
+};
+
+let cachedSupabase = null;
+let cachedSupabaseConfig = { url: "", key: "" };
+
+const getSupabaseClient = async () => {
+  const url = dom.supabaseUrl.value.trim();
+  const key = dom.supabaseKey.value.trim();
+
+  if (!url || !key) {
+    return null;
+  }
+
+  if (
+    cachedSupabase &&
+    cachedSupabaseConfig.url === url &&
+    cachedSupabaseConfig.key === key
+  ) {
+    return cachedSupabase;
+  }
+
+  const { createClient } = await import(
+    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
+  );
+
+  cachedSupabase = createClient(url, key, {
+    auth: {
+      persistSession: true,
+      detectSessionInUrl: false
+    }
+  });
+  cachedSupabaseConfig = { url, key };
+  return cachedSupabase;
+};
+
+const refreshAuthState = async () => {
+  const supabase = await getSupabaseClient();
+
+  state.accessToken = null;
+  state.authUserId = null;
+  dom.authUserId.textContent = "Not signed in";
+  dom.userId.disabled = false;
+
+  if (!supabase) {
+    return;
+  }
+
+  const { data, error } = await supabase.auth.getSession();
+  if (error) {
+    log("Supabase getSession failed", { message: error.message });
+    return;
+  }
+
+  const session = data?.session;
+  if (!session) {
+    return;
+  }
+
+  state.accessToken = session.access_token;
+  state.authUserId = session.user.id;
+  dom.authUserId.textContent = session.user.id;
+  dom.userId.value = session.user.id;
+  dom.userId.disabled = true;
 };
 
 const render = () => {
@@ -151,7 +259,7 @@ const render = () => {
       const cardNode = dom.cardTemplate.content.firstElementChild.cloneNode(true);
       cardNode.dataset.cardId = card.id;
       cardNode.querySelector(".card-title").textContent = card.title;
-      cardNode.querySelector(".card-meta").textContent = `v${card.version} • pos ${card.position}`;
+      cardNode.querySelector(".card-meta").textContent = `v${card.version} * pos ${card.position}`;
       cardNode.addEventListener("dragstart", () => {
         state.dragCardId = card.id;
       });
@@ -208,3 +316,56 @@ dom.createListBtn.addEventListener("click", async () => {
 });
 
 render();
+
+hydrateSupabaseConfig();
+refreshAuthState().catch((error) => log("Auth refresh failed", { message: error.message }));
+
+dom.supabaseUrl.addEventListener("change", () => {
+  persistSupabaseConfig();
+  refreshAuthState().catch((error) => log("Auth refresh failed", { message: error.message }));
+});
+
+dom.supabaseKey.addEventListener("change", () => {
+  persistSupabaseConfig();
+  refreshAuthState().catch((error) => log("Auth refresh failed", { message: error.message }));
+});
+
+dom.loginDiscordBtn.addEventListener("click", async () => {
+  try {
+    persistSupabaseConfig();
+    const supabase = await getSupabaseClient();
+    if (!supabase) {
+      log("Set Supabase URL + Publishable Key before signing in.");
+      return;
+    }
+
+    await supabase.auth.signInWithOAuth({
+      provider: "discord",
+      options: {
+        redirectTo: new URL("/auth/callback.html", window.location.origin).toString()
+      }
+    });
+  } catch (error) {
+    log("Discord sign-in failed", { message: error.message });
+  }
+});
+
+dom.logoutBtn.addEventListener("click", async () => {
+  try {
+    const supabase = await getSupabaseClient();
+    if (!supabase) {
+      return;
+    }
+
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      log("Logout failed", { message: error.message });
+      return;
+    }
+
+    await refreshAuthState();
+    log("Logged out.");
+  } catch (error) {
+    log("Logout failed", { message: error.message });
+  }
+});

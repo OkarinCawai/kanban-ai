@@ -40,6 +40,29 @@
       </section>
 
       <section class="panel">
+        <h2>Supabase Auth (Discord)</h2>
+        <p class="meta">
+          Optional: If you sign in with Supabase Auth, the app will call the API using
+          <code>Authorization: Bearer &lt;access_token&gt;</code>.
+        </p>
+        <div class="fields">
+          <label>
+            Supabase URL
+            <input id="supabaseUrl" placeholder="https://your-project-ref.supabase.co" />
+          </label>
+          <label>
+            Supabase Publishable Key
+            <input id="supabaseKey" placeholder="sb_publishable_..." />
+          </label>
+        </div>
+        <div class="inline" style="margin-top: 10px">
+          <button id="loginDiscordBtn">Sign in with Discord</button>
+          <button id="logoutBtn" type="button">Logout</button>
+        </div>
+        <p class="meta">Auth User ID: <span id="authUserId">Not signed in</span></p>
+      </section>
+
+      <section class="panel">
         <h2>Board</h2>
         <div class="inline">
           <input id="boardTitle" placeholder="Board title" value="Roadmap" />
