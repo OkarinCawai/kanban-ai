@@ -9,6 +9,10 @@ import { AppModule } from "./app.module.js";
 async function bootstrap(): Promise<void> {
   loadRuntimeSecrets();
   const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: true,
+    credentials: true
+  });
   await app.listen(3000);
 }
 
