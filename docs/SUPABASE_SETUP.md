@@ -36,13 +36,50 @@ Apply it in Supabase SQL Editor or your migration pipeline.
 
 ## 5) Discord social login (M2)
 
-Supabase Auth Discord provider is configured in the Supabase dashboard.
+Supabase Auth Discord provider must be enabled/configured in the Supabase dashboard.
+
+If you see an error like:
+
+```json
+{"code":400,"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}
+```
+
+It means the Discord provider toggle is still off for the project you are using.
+
+Setup checklist (Supabase dashboard):
+1. Authentication -> Providers -> Discord:
+   - Enable the provider.
+   - Set Discord Client ID + Client Secret (from Discord Developer Portal).
+2. Authentication -> URL Configuration:
+   - Add the local callback URL(s) below to "Additional Redirect URLs".
 
 Local dev callback URL used by the web app:
 
 - `http://localhost:3001/auth/callback.html`
 
+Also ensure your Discord app OAuth2 redirect URL list includes the same callback URL.
+
 Current API expectation (M2 in progress):
 
 - Send `Authorization: Bearer <supabase_access_token>` to the API.
 - Continue sending `x-org-id` and `x-role` headers (role is still required by core use-cases; RLS remains the final enforcement layer).
+
+## 6) Dev org + membership bootstrap (required for writes under RLS)
+
+RLS requires a `public.memberships` row for the `(user_id, org_id)` you are sending.
+
+For local/dev bootstrapping, create an org + membership in Supabase SQL editor (IDs are examples):
+
+```sql
+insert into public.orgs (id, name)
+values ('79de6cc2-e8fd-457e-bdc7-0fb591ff53d6'::uuid, 'Dev Org')
+on conflict (id) do nothing;
+
+insert into public.memberships (user_id, org_id, role)
+values ('<your-user-uuid>'::uuid, '79de6cc2-e8fd-457e-bdc7-0fb591ff53d6'::uuid, 'admin')
+on conflict (user_id, org_id) do update set role = excluded.role;
+```
+
+Then use that same `org_id` in the web UI and either:
+- Sign in with Discord (so the API resolves `user_id` from the Supabase access token), or
+- Set `x-user-id` in the web UI to the same UUID you inserted into `public.memberships`.
