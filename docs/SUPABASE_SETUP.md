@@ -33,3 +33,16 @@ Apply it in Supabase SQL Editor or your migration pipeline.
 - For isolated local tests, set `KANBAN_REPOSITORY=memory`.
 - `npm run db:migrate:m1` applies the core schema migration using `SUPABASE_DB_URL`.
 - `npm run test:policy` includes live Supabase RLS verification (`infra/db/tests/rls-live.test.mjs`).
+
+## 5) Discord social login (M2)
+
+Supabase Auth Discord provider is configured in the Supabase dashboard.
+
+Local dev callback URL used by the web app:
+
+- `http://localhost:3001/auth/callback.html`
+
+Current API expectation (M2 in progress):
+
+- Send `Authorization: Bearer <supabase_access_token>` to the API.
+- Continue sending `x-org-id` and `x-role` headers (role is still required by core use-cases; RLS remains the final enforcement layer).
