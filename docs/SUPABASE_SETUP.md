@@ -50,6 +50,8 @@ Setup checklist (Supabase dashboard):
 1. Authentication -> Providers -> Discord:
    - Enable the provider.
    - Set Discord Client ID + Client Secret (from Discord Developer Portal).
+     Client ID must be the Discord Application "Client ID" (a numeric snowflake).
+     If you see `Value "you@example.com" is not snowflake.`, you pasted the wrong value.
 2. Authentication -> URL Configuration:
    - Add the local callback URL(s) below to "Additional Redirect URLs".
 
