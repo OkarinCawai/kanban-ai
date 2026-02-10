@@ -59,6 +59,10 @@ Local dev callback URL used by the web app:
 
 Also ensure your Discord app OAuth2 redirect URL list includes the same callback URL.
 
+Note: The web app uses Supabase JS `flowType: "pkce"`. If the callback URL contains
+`#access_token=...` instead of `?code=...`, you are in the implicit flow and the
+PKCE callback exchange will not run.
+
 Current API expectation (M2 in progress):
 
 - Send `Authorization: Bearer <supabase_access_token>` to the API.

@@ -134,7 +134,8 @@ const getSupabaseClient = async () => {
   cachedSupabase = createClient(url, key, {
     auth: {
       persistSession: true,
-      detectSessionInUrl: false
+      detectSessionInUrl: false,
+      flowType: "pkce"
     }
   });
   cachedSupabaseConfig = { url, key };

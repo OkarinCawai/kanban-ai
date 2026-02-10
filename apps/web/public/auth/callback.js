@@ -20,7 +20,8 @@ if (!supabaseUrl || !supabaseKey) {
   const supabase = createClient(supabaseUrl, supabaseKey, {
     auth: {
       persistSession: true,
-      detectSessionInUrl: false
+      detectSessionInUrl: false,
+      flowType: "pkce"
     }
   });
 
@@ -40,4 +41,3 @@ if (!supabaseUrl || !supabaseKey) {
     }
   }
 }
-
