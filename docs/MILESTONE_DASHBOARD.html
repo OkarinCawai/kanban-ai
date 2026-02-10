@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trello Clone Milestone Dashboard</title>
+    <style>
+      :root {
+        --bg-a: #f5efe3;
+        --bg-b: #e7f0eb;
+        --ink: #1b2a31;
+        --muted: #5d6a70;
+        --card: #ffffff;
+        --border: #d2d9dd;
+        --planned: #8a6f38;
+        --in-progress: #1f7a6e;
+        --completed: #14634c;
+        --blocked: #a52a2a;
+        --bar-bg: #e5eaed;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        background: linear-gradient(150deg, var(--bg-a), var(--bg-b));
+      }
+
+      .shell {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 28px 18px 36px;
+      }
+
+      .hero {
+        background: #fff7e9;
+        border: 2px solid #ccb585;
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 7px 18px rgba(49, 54, 59, 0.08);
+      }
+
+      .hero h1 {
+        margin: 0 0 8px;
+        letter-spacing: 0.2px;
+      }
+
+      .hero p {
+        margin: 6px 0;
+        color: var(--muted);
+      }
+
+      .stats {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(120px, 1fr));
+        gap: 10px;
+      }
+
+      .stat {
+        background: #fff;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 10px 12px;
+      }
+
+      .stat .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--muted);
+      }
+
+      .stat .value {
+        font-size: 24px;
+        font-weight: 700;
+        margin-top: 2px;
+      }
+
+      .board {
+        margin-top: 18px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 14px;
+      }
+
+      .milestone {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 14px;
+        box-shadow: 0 5px 14px rgba(49, 54, 59, 0.06);
+      }
+
+      .milestone h3 {
+        margin: 0 0 8px;
+      }
+
+      .milestone .meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .badge {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        padding: 4px 8px;
+      }
+
+      .planned {
+        color: var(--planned);
+        background: #fff6df;
+        border-color: #e8d19d;
+      }
+
+      .in-progress {
+        color: var(--in-progress);
+        background: #e5f6f2;
+        border-color: #9ccfc3;
+      }
+
+      .completed {
+        color: var(--completed);
+        background: #e8f6ef;
+        border-color: #8fcca8;
+      }
+
+      .blocked {
+        color: var(--blocked);
+        background: #fdecec;
+        border-color: #e6abab;
+      }
+
+      .progress {
+        margin: 10px 0 12px;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 10px;
+        background: var(--bar-bg);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #1f7a6e, #2ea58f);
+      }
+
+      .progress-label {
+        margin-top: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .tasks {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      .tasks li {
+        margin-bottom: 5px;
+        color: #314148;
+      }
+
+      .tasks li.done {
+        color: #1b6f58;
+      }
+
+      .tasks li.done::marker {
+        content: "x  ";
+      }
+
+      .tasks li.todo::marker {
+        content: "-  ";
+      }
+
+      .hint {
+        margin-top: 16px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      @media (max-width: 640px) {
+        .stats {
+          grid-template-columns: repeat(2, minmax(120px, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Kanban Platform Milestone Dashboard</h1>
+        <p>Source of truth: <code>docs/DEVELOPMENT_PLAN.md</code></p>
+        <p>Last refreshed: <span id="lastRefreshed"></span></p>
+        <div class="stats">
+          <div class="stat">
+            <div class="label">Total Milestones</div>
+            <div class="value" id="totalMilestones">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Completed</div>
+            <div class="value" id="completedMilestones">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">In Progress</div>
+            <div class="value" id="activeMilestones">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Blocked</div>
+            <div class="value" id="blockedMilestones">0</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="board" id="board"></section>
+
+      <p class="hint">
+        Update milestone data in the <code>MILESTONES</code> constant in this file as work progresses.
+      </p>
+    </main>
+
+    <script>
+      const MILESTONES = [
+        {
+          id: "M0",
+          title: "Project Governance Setup",
+          status: "completed",
+          tasks: [
+            { label: "Agent operating contract", done: true },
+            { label: "Architecture and workflow docs", done: true },
+            { label: "Milestone execution plan", done: true }
+          ]
+        },
+        {
+          id: "M1",
+          title: "Core Kanban + Security Base",
+          status: "planned",
+          tasks: [
+            { label: "Monorepo scaffold", done: false },
+            { label: "Core schema + RLS policies", done: false },
+            { label: "Board/List/Card CRUD", done: false },
+            { label: "Web drag and drop board", done: false },
+            { label: "Outbox write on mutations", done: false }
+          ]
+        },
+        {
+          id: "M2",
+          title: "Discord Auth + Core Commands",
+          status: "planned",
+          tasks: [
+            { label: "Discord OAuth flow", done: false },
+            { label: "JWT + refresh token flow", done: false },
+            { label: "Connect identity command", done: false },
+            { label: "My tasks / create / move commands", done: false }
+          ]
+        },
+        {
+          id: "M3",
+          title: "AI Summaries + Ask-the-Board",
+          status: "planned",
+          tasks: [
+            { label: "Gemini adapter with schema validation", done: false },
+            { label: "RAG tables and embedding pipeline", done: false },
+            { label: "Permission-aware retrieval", done: false },
+            { label: "Card summarize + ask-board endpoints", done: false }
+          ]
+        },
+        {
+          id: "M4",
+          title: "Thread to Card",
+          status: "planned",
+          tasks: [
+            { label: "Thread fetch and extraction", done: false },
+            { label: "Preview embed and action buttons", done: false },
+            { label: "Create card/checklist assignment flow", done: false }
+          ]
+        },
+        {
+          id: "M5",
+          title: "Deterministic Card Covers",
+          status: "planned",
+          tasks: [
+            { label: "CoverSpec contracts", done: false },
+            { label: "Spec generation job", done: false },
+            { label: "SVG/PNG rendering and storage", done: false },
+            { label: "Web + Discord cover display", done: false }
+          ]
+        },
+        {
+          id: "M6",
+          title: "Hygiene + Digests",
+          status: "planned",
+          tasks: [
+            { label: "Stuck-card detection", done: false },
+            { label: "Weekly recap generation", done: false },
+            { label: "Optional standup output", done: false }
+          ]
+        }
+      ];
+
+      const boardEl = document.getElementById("board");
+      const totals = {
+        total: MILESTONES.length,
+        completed: 0,
+        active: 0,
+        blocked: 0
+      };
+
+      for (const milestone of MILESTONES) {
+        const doneCount = milestone.tasks.filter((task) => task.done).length;
+        const totalCount = milestone.tasks.length || 1;
+        const progress = Math.round((doneCount / totalCount) * 100);
+
+        if (milestone.status === "completed") totals.completed += 1;
+        if (milestone.status === "in-progress") totals.active += 1;
+        if (milestone.status === "blocked") totals.blocked += 1;
+
+        const card = document.createElement("article");
+        card.className = "milestone";
+        card.innerHTML = `
+          <h3>${milestone.id} - ${milestone.title}</h3>
+          <div class="meta">
+            <span class="badge ${milestone.status}">${milestone.status.replace("-", " ")}</span>
+            <span>${doneCount}/${totalCount} tasks</span>
+          </div>
+          <div class="progress">
+            <div class="progress-track">
+              <div class="progress-fill" style="width: ${progress}%"></div>
+            </div>
+            <div class="progress-label">${progress}% complete</div>
+          </div>
+          <ul class="tasks">
+            ${milestone.tasks
+              .map(
+                (task) =>
+                  `<li class="${task.done ? "done" : "todo"}">${task.label}</li>`
+              )
+              .join("")}
+          </ul>
+        `;
+        boardEl.appendChild(card);
+      }
+
+      document.getElementById("totalMilestones").textContent = totals.total;
+      document.getElementById("completedMilestones").textContent = totals.completed;
+      document.getElementById("activeMilestones").textContent = totals.active;
+      document.getElementById("blockedMilestones").textContent = totals.blocked;
+      document.getElementById("lastRefreshed").textContent =
+        new Date().toLocaleString();
+    </script>
+  </body>
+</html>
