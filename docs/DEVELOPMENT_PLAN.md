@@ -27,7 +27,7 @@ Exit criteria:
 
 ## Milestone 2: Discord Auth + Core Commands
 
-Status (2026-02-10): `planned`
+Status (2026-02-10): `in-progress`
 
 Deliverables:
 - Supabase Auth Discord provider configuration and callback URL setup.

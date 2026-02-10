@@ -20,7 +20,8 @@ export class KanbanController {
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Body() body: unknown
   ) {
-    return this.kanbanService.createBoard(toRequestContext(headers), body);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.createBoard(context, body);
   }
 
   @Get("boards/:boardId")
@@ -28,7 +29,8 @@ export class KanbanController {
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param("boardId") boardId: string
   ) {
-    return this.kanbanService.getBoard(toRequestContext(headers), boardId);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.getBoard(context, boardId);
   }
 
   @Post("lists")
@@ -36,7 +38,8 @@ export class KanbanController {
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Body() body: unknown
   ) {
-    return this.kanbanService.createList(toRequestContext(headers), body);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.createList(context, body);
   }
 
   @Get("lists/:listId")
@@ -44,7 +47,8 @@ export class KanbanController {
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param("listId") listId: string
   ) {
-    return this.kanbanService.getList(toRequestContext(headers), listId);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.getList(context, listId);
   }
 
   @Post("cards")
@@ -52,7 +56,8 @@ export class KanbanController {
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Body() body: unknown
   ) {
-    return this.kanbanService.createCard(toRequestContext(headers), body);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.createCard(context, body);
   }
 
   @Get("cards/:cardId")
@@ -60,7 +65,8 @@ export class KanbanController {
     @Headers() headers: Record<string, string | string[] | undefined>,
     @Param("cardId") cardId: string
   ) {
-    return this.kanbanService.getCard(toRequestContext(headers), cardId);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.getCard(context, cardId);
   }
 
   @Patch("cards/:cardId")
@@ -69,7 +75,8 @@ export class KanbanController {
     @Param("cardId") cardId: string,
     @Body() body: unknown
   ) {
-    return this.kanbanService.updateCard(toRequestContext(headers), cardId, body);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.updateCard(context, cardId, body);
   }
 
   @Patch("cards/:cardId/move")
@@ -78,6 +85,7 @@ export class KanbanController {
     @Param("cardId") cardId: string,
     @Body() body: unknown
   ) {
-    return this.kanbanService.moveCard(toRequestContext(headers), cardId, body);
+    const context = await toRequestContext(headers);
+    return this.kanbanService.moveCard(context, cardId, body);
   }
 }

@@ -286,8 +286,9 @@
         {
           id: "M2",
           title: "Discord Auth + Core Commands",
-          status: "planned",
+          status: "in-progress",
           tasks: [
+            { label: "API validates Supabase Bearer tokens", done: true },
             { label: "Supabase Discord provider setup", done: false },
             { label: "PKCE OAuth + callback code exchange", done: false },
             { label: "Session strategy across web/API", done: false },
@@ -296,7 +297,8 @@
           ],
           updates: [
             "2026-02-10: Direction updated to Supabase Auth Discord social login.",
-            "2026-02-10: Auth contract aligned; M2 is unblocked and ready."
+            "2026-02-10: Auth contract aligned; M2 is unblocked and ready.",
+            "2026-02-10: API accepts Authorization: Bearer <access_token> and resolves user id via Supabase Auth."
           ]
         },
         {
@@ -344,7 +346,7 @@
       ];
 
       const TEST_SIGNAL = {
-        passing: 30,
+        passing: 32,
         failing: 0,
         verifiedAt: "2026-02-10 (latest local npm run test)"
       };
