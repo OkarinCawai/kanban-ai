@@ -1,0 +1,25 @@
+{
+  "name": "kanban-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Trello-like Kanban platform monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "db:migrate:m1": "node -r dotenv/config infra/db/scripts/apply-migration.mjs 0001_m1_core_schema.sql",
+    "test:workspaces": "npm run test --workspaces --if-present",
+    "test:policy": "npm run db:migrate:m1 && node -r dotenv/config --test --test-isolation=none \"infra/db/tests/**/*.test.mjs\"",
+    "test": "npm run test:workspaces && npm run test:policy",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "dotenv": "^16.4.7",
+    "typescript": "^5.7.3"
+  }
+}
+

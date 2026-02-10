@@ -68,6 +68,13 @@ Newest decision with same topic supersedes older entries.
 - Decision: Defer realtime syncing until core board + Discord workflows are stable.
 - Consequences: Simpler release; potential short-term refresh friction.
 
+## D-009: Request-path Supabase writes run under RLS-scoped DB session claims
+- Date: 2026-02-10
+- Status: `accepted`
+- Context: M1 requires outbox-atomic writes while preserving RLS as primary enforcement.
+- Decision: Use a Postgres adapter that executes request-path transactions with `SET LOCAL ROLE authenticated` and request claim session variables (`request.jwt.claim.*`).
+- Consequences: API can keep transactional domain+outbox guarantees while enforcing organization/role isolation via RLS policies.
+
 ## Template for new decisions
 
 Use this block for future entries:

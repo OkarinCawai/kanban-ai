@@ -1,0 +1,35 @@
+{
+  "name": "@kanban/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/src/main.js",
+  "types": "src/main.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/src/main.js",
+    "test": "npm run build --workspace @kanban/contracts && npm run build --workspace @kanban/core && npm run build --workspace @kanban/adapters && npm run build && cross-env DOTENV_CONFIG_PATH=../../.env node -r dotenv/config --test --test-isolation=none \"dist/test/**/*.test.js\"",
+    "lint": "echo No lint configured for @kanban/api"
+  },
+  "dependencies": {
+    "@kanban/adapters": "0.1.0",
+    "@kanban/contracts": "0.1.0",
+    "@kanban/core": "0.1.0",
+    "@kanban/utils": "0.1.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "dotenv": "^16.4.7",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/testing": "^11.0.0",
+    "@types/pg": "^8.11.11",
+    "@types/supertest": "^6.0.2",
+    "cross-env": "^7.0.3",
+    "pg": "^8.13.1",
+    "supertest": "^7.0.0"
+  }
+}

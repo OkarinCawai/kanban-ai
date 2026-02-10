@@ -4,6 +4,15 @@ This plan turns the brief into execution checkpoints for multiple agents.
 
 ## Milestone 1: Core Kanban + Security Base
 
+Status (2026-02-10): `completed`
+
+Progress snapshot:
+- [x] Monorepo scaffold with apps/packages from architecture doc.
+- [x] Initial core schema + RLS migration applied and verified.
+- [x] API CRUD for boards/lists/cards implemented on Supabase Postgres.
+- [x] Web board drag-and-drop basics.
+- [x] Outbox write path integrated with mutations.
+
 Deliverables:
 - Monorepo scaffold with apps/packages from architecture doc.
 - Initial Postgres schema for org/board/list/card and membership models.

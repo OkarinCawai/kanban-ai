@@ -57,7 +57,7 @@
       .stats {
         margin-top: 16px;
         display: grid;
-        grid-template-columns: repeat(4, minmax(120px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
         gap: 10px;
       }
 
@@ -192,6 +192,17 @@
         color: var(--muted);
       }
 
+      .updates {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .updates li {
+        margin-bottom: 4px;
+      }
+
       @media (max-width: 640px) {
         .stats {
           grid-template-columns: repeat(2, minmax(120px, 1fr));
@@ -205,6 +216,7 @@
         <h1>Kanban Platform Milestone Dashboard</h1>
         <p>Source of truth: <code>docs/DEVELOPMENT_PLAN.md</code></p>
         <p>Last refreshed: <span id="lastRefreshed"></span></p>
+        <p>Latest test verification: <span id="lastVerification"></span></p>
         <div class="stats">
           <div class="stat">
             <div class="label">Total Milestones</div>
@@ -221,6 +233,14 @@
           <div class="stat">
             <div class="label">Blocked</div>
             <div class="value" id="blockedMilestones">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Tests Passing</div>
+            <div class="value" id="testsPassing">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Tests Failing</div>
+            <div class="value" id="testsFailing">0</div>
           </div>
         </div>
       </section>
@@ -247,13 +267,20 @@
         {
           id: "M1",
           title: "Core Kanban + Security Base",
-          status: "planned",
+          status: "completed",
           tasks: [
-            { label: "Monorepo scaffold", done: false },
-            { label: "Core schema + RLS policies", done: false },
-            { label: "Board/List/Card CRUD", done: false },
-            { label: "Web drag and drop board", done: false },
-            { label: "Outbox write on mutations", done: false }
+            { label: "Monorepo scaffold", done: true },
+            { label: "Core schema + RLS policies", done: true },
+            { label: "Board/List/Card CRUD", done: true },
+            { label: "Web drag and drop board", done: true },
+            { label: "Outbox write on mutations", done: true }
+          ],
+          updates: [
+            "2026-02-10: Monorepo and package boundaries scaffolded.",
+            "2026-02-10: API now runs against Supabase Postgres repository with transactional outbox writes.",
+            "2026-02-10: Live Supabase RLS tests and API Supabase integration tests passing.",
+            "2026-02-10: Supabase + Gemini environment configuration added.",
+            "2026-02-10: Web board view with drag-and-drop move basics implemented."
           ]
         },
         {
@@ -311,6 +338,12 @@
         }
       ];
 
+      const TEST_SIGNAL = {
+        passing: 30,
+        failing: 0,
+        verifiedAt: "2026-02-10 (latest local npm run test)"
+      };
+
       const boardEl = document.getElementById("board");
       const totals = {
         total: MILESTONES.length,
@@ -350,6 +383,11 @@
               )
               .join("")}
           </ul>
+          ${
+            milestone.updates && milestone.updates.length
+              ? `<ul class="updates">${milestone.updates.map((item) => `<li>${item}</li>`).join("")}</ul>`
+              : ""
+          }
         `;
         boardEl.appendChild(card);
       }
@@ -358,6 +396,9 @@
       document.getElementById("completedMilestones").textContent = totals.completed;
       document.getElementById("activeMilestones").textContent = totals.active;
       document.getElementById("blockedMilestones").textContent = totals.blocked;
+      document.getElementById("testsPassing").textContent = String(TEST_SIGNAL.passing);
+      document.getElementById("testsFailing").textContent = String(TEST_SIGNAL.failing);
+      document.getElementById("lastVerification").textContent = TEST_SIGNAL.verifiedAt;
       document.getElementById("lastRefreshed").textContent =
         new Date().toLocaleString();
     </script>

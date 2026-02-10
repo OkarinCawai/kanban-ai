@@ -1,0 +1,1 @@
+export const KANBAN_REPOSITORY = Symbol("KANBAN_REPOSITORY");

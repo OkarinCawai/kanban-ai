@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kanban M1 Board</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <h1>M1 Kanban Board</h1>
+        <p>Basic board/list/card flow with drag-and-drop card move.</p>
+      </header>
+
+      <section class="panel">
+        <h2>Connection</h2>
+        <div class="fields">
+          <label>
+            API URL
+            <input id="apiUrl" value="http://localhost:3000" />
+          </label>
+          <label>
+            User UUID
+            <input id="userId" value="2d6a7ae9-c0f0-4e9f-a645-c45baed9a2f5" />
+          </label>
+          <label>
+            Org UUID
+            <input id="orgId" value="79de6cc2-e8fd-457e-bdc7-0fb591ff53d6" />
+          </label>
+          <label>
+            Role
+            <select id="role">
+              <option value="viewer">viewer</option>
+              <option value="editor" selected>editor</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Board</h2>
+        <div class="inline">
+          <input id="boardTitle" placeholder="Board title" value="Roadmap" />
+          <button id="createBoardBtn">Create Board</button>
+        </div>
+        <p class="meta">Board ID: <span id="boardId">Not created</span></p>
+      </section>
+
+      <section class="panel">
+        <h2>Lists</h2>
+        <div class="inline">
+          <input id="listTitle" placeholder="List title" value="Todo" />
+          <button id="createListBtn">Add List</button>
+        </div>
+      </section>
+
+      <section class="board" id="boardColumns"></section>
+
+      <section class="panel">
+        <h2>Activity</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <template id="listTemplate">
+      <article class="column">
+        <header>
+          <h3 class="list-title"></h3>
+        </header>
+        <div class="cards"></div>
+        <div class="inline">
+          <input class="card-title-input" placeholder="Card title" />
+          <button class="add-card-btn">Add Card</button>
+        </div>
+      </article>
+    </template>
+
+    <template id="cardTemplate">
+      <div class="card" draggable="true">
+        <div class="card-title"></div>
+        <div class="card-meta"></div>
+      </div>
+    </template>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
