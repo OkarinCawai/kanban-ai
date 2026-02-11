@@ -24,7 +24,12 @@ const requiredTables = [
   "outbox_events",
   "discord_identities",
   "discord_guilds",
-  "discord_channel_mappings"
+  "discord_channel_mappings",
+  "card_summaries",
+  "ai_ask_requests",
+  "documents",
+  "document_chunks",
+  "document_embeddings"
 ];
 
 test("policy: migration includes required core tables", () => {
@@ -54,7 +59,18 @@ test("policy: board/list/card read and write policies are present", () => {
     "lists_read_policy",
     "lists_write_policy",
     "cards_read_policy",
-    "cards_write_policy"
+    "cards_write_policy",
+    "card_summaries_select_policy",
+    "card_summaries_write_policy",
+    "ai_ask_requests_select_policy",
+    "ai_ask_requests_insert_policy",
+    "ai_ask_requests_update_policy",
+    "documents_select_policy",
+    "documents_write_policy",
+    "document_chunks_select_policy",
+    "document_chunks_write_policy",
+    "document_embeddings_select_policy",
+    "document_embeddings_write_policy"
   ];
 
   for (const policy of requiredPolicies) {

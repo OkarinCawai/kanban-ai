@@ -27,7 +27,15 @@ Exit criteria:
 
 ## Milestone 2: Discord Auth + Core Commands
 
-Status (2026-02-10): `in-progress`
+Status (2026-02-11): `completed`
+
+Progress snapshot:
+- [x] Supabase Auth Discord provider flow wired in web (`signInWithOAuth` + callback exchange).
+- [x] API validates Supabase Bearer tokens and maps request context.
+- [x] Discord identity linking (`/connect`) with provider-id enforcement.
+- [x] Discord command bridge: `/my tasks`, `/card create`, `/card move`.
+- [x] Guild/channel mapping schema + endpoints.
+- [x] Live stack verification command added: `npm run verify:live`.
 
 Deliverables:
 - Supabase Auth Discord provider configuration and callback URL setup.
@@ -42,6 +50,17 @@ Exit criteria:
 - Commands use API contracts only, no duplicated business logic.
 
 ## Milestone 3: AI Summaries + Ask-the-Board
+
+Status (2026-02-11): `in-progress`
+
+Progress snapshot:
+- [x] M3 contracts scaffolded for ask/summarize payloads and strict model-output schemas.
+- [x] API async enqueue endpoints added: `POST /cards/:cardId/summarize`, `POST /ai/ask-board`.
+- [x] Core use-cases enqueue `ai.*` outbox events with contract validation.
+- [x] Worker outbox poller scaffold added with `FOR UPDATE SKIP LOCKED` and retry bookkeeping.
+- [x] Initial M3 schema scaffold migration added (`0003_m3_ai_rag_scaffold.sql`).
+- [ ] Gemini adapter execution pipeline implementation.
+- [ ] Permission-aware retrieval and grounded answer persistence.
 
 Deliverables:
 - Gemini adapter with strict schema output validation.

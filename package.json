@@ -10,8 +10,11 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify:live": "node -r dotenv/config tools/verify-live-stack.mjs",
     "db:migrate:m1": "node -r dotenv/config infra/db/scripts/apply-migration.mjs 0001_m1_core_schema.sql",
-    "db:migrate": "npm run db:migrate:m1 && node -r dotenv/config infra/db/scripts/apply-migration.mjs 0002_m2_discord_integration.sql",
+    "db:migrate:m2": "node -r dotenv/config infra/db/scripts/apply-migration.mjs 0002_m2_discord_integration.sql",
+    "db:migrate:m3": "node -r dotenv/config infra/db/scripts/apply-migration.mjs 0003_m3_ai_rag_scaffold.sql",
+    "db:migrate": "npm run db:migrate:m1 && npm run db:migrate:m2 && npm run db:migrate:m3",
     "test:workspaces": "npm run test --workspaces --if-present",
     "test:policy": "npm run db:migrate && node -r dotenv/config --test --test-isolation=none \"infra/db/tests/**/*.test.mjs\"",
     "test": "npm run test:workspaces && npm run test:policy",

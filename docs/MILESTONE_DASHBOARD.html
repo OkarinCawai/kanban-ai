@@ -286,7 +286,7 @@
         {
           id: "M2",
           title: "Discord Auth + Core Commands",
-          status: "in-progress",
+          status: "completed",
           tasks: [
             { label: "API validates Supabase Bearer tokens", done: true },
             { label: "Supabase Discord provider setup", done: true },
@@ -300,18 +300,28 @@
             "2026-02-10: Auth contract aligned; M2 is unblocked and ready.",
             "2026-02-10: API accepts Authorization: Bearer <access_token> and resolves user id via Supabase Auth.",
             "2026-02-10: Web adds Supabase Discord sign-in and callback exchange; API calls can use the Supabase session token.",
-            "2026-02-10: Discord interactions endpoint + API command bridge added (requires Discord app config + guild/channel mapping)."
+            "2026-02-10: Discord interactions endpoint + API command bridge added (requires Discord app config + guild/channel mapping).",
+            "2026-02-11: Added npm run verify:live to validate local liveness and M2 command path."
           ]
         },
         {
           id: "M3",
           title: "AI Summaries + Ask-the-Board",
-          status: "planned",
+          status: "in-progress",
           tasks: [
-            { label: "Gemini adapter with schema validation", done: false },
-            { label: "RAG tables and embedding pipeline", done: false },
+            { label: "Contracts for AI payloads + strict output schemas", done: true },
+            { label: "Async API enqueue endpoints", done: true },
+            { label: "Worker outbox poller scaffold (skip locked + retries)", done: true },
+            { label: "RAG tables schema scaffold", done: true },
+            { label: "Gemini adapter execution", done: false },
             { label: "Permission-aware retrieval", done: false },
-            { label: "Card summarize + ask-board endpoints", done: false }
+            { label: "Grounded answer persistence + references", done: false }
+          ],
+          updates: [
+            "2026-02-11: Added /cards/:cardId/summarize and /ai/ask-board enqueue endpoints.",
+            "2026-02-11: Added ai.* outbox event contracts + core use-cases.",
+            "2026-02-11: Added worker poller scaffold with FOR UPDATE SKIP LOCKED.",
+            "2026-02-11: Added migration scaffold 0003_m3_ai_rag_scaffold.sql."
           ]
         },
         {
@@ -348,9 +358,9 @@
       ];
 
       const TEST_SIGNAL = {
-        passing: 32,
+        passing: 40,
         failing: 0,
-        verifiedAt: "2026-02-10 (latest local npm run test)"
+        verifiedAt: "2026-02-11 (latest local npm run test)"
       };
 
       const boardEl = document.getElementById("board");

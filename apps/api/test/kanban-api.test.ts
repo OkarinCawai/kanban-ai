@@ -129,3 +129,67 @@ test("api: mutation writes outbox entry", async () => {
     await app.close();
   }
 });
+
+test("api: card summarize enqueues ai outbox event", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    const listResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId: boardResponse.body.id, title: "Todo", position: 0 });
+
+    const cardResponse = await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: listResponse.body.id, title: "Implement API", position: 1 });
+
+    const response = await request(app.getHttpServer())
+      .post(`/cards/${cardResponse.body.id}/summarize`)
+      .set(authHeaders)
+      .send({ reason: "Prepare async summary" });
+
+    assert.equal(response.status, 201);
+    assert.equal(response.body.status, "queued");
+    assert.equal(response.body.eventType, "ai.card-summary.requested");
+
+    const lastEvent = repository.getOutboxEvents().at(-1);
+    assert.equal(lastEvent?.type, "ai.card-summary.requested");
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: ask-board enqueues ai outbox event", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    const response = await request(app.getHttpServer())
+      .post("/ai/ask-board")
+      .set(authHeaders)
+      .send({
+        boardId: boardResponse.body.id,
+        question: "What should the team focus on this week?",
+        topK: 6
+      });
+
+    assert.equal(response.status, 201);
+    assert.equal(response.body.status, "queued");
+    assert.equal(response.body.eventType, "ai.ask-board.requested");
+
+    const lastEvent = repository.getOutboxEvents().at(-1);
+    assert.equal(lastEvent?.type, "ai.ask-board.requested");
+  } finally {
+    await app.close();
+  }
+});

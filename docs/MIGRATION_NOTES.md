@@ -22,3 +22,22 @@ Operational notes:
 - Policy coverage is validated by:
   - `infra/db/tests/rls-policy-coverage.test.mjs`
   - `infra/db/tests/rls-live.test.mjs` (live Supabase execution)
+
+## 0003_m3_ai_rag_scaffold.sql (2026-02-11)
+
+Path: `infra/db/migrations/0003_m3_ai_rag_scaffold.sql`
+
+Changes:
+- Adds AI summary/ask scaffold tables:
+  - `card_summaries`
+  - `ai_ask_requests`
+- Adds permission-scoped RAG scaffold tables:
+  - `documents`
+  - `document_chunks`
+  - `document_embeddings`
+- Enables + forces RLS on all new M3 tables.
+- Adds baseline read/write policies using org-role checks (`public.has_org_role(...)`).
+
+Operational notes:
+- This migration scaffolds async AI/RAG persistence structures for M3; it does not yet implement final retrieval/ranking logic.
+- Policy coverage checks include these new tables/policies via `infra/db/tests/rls-policy-coverage.test.mjs`.

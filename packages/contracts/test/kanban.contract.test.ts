@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  askBoardInputSchema,
+  aiCardSummaryRequestedPayloadSchema,
+  aiJobAcceptedSchema,
   authContextSchema,
   createBoardInputSchema,
   createCardInputSchema,
+  geminiAskBoardOutputSchema,
+  geminiCardSummaryOutputSchema,
   moveCardInputSchema,
   outboxEventSchema,
+  queueCardSummaryInputSchema,
   updateCardInputSchema
 } from "../src/index.js";
 
@@ -42,14 +48,14 @@ test("contracts: validates move payload", () => {
 test("contracts: validates outbox event shape", () => {
   const event = outboxEventSchema.parse({
     id: "evt-1",
-    type: "card.created",
+    type: "ai.card-summary.requested",
     orgId: "org-1",
     boardId: "board-1",
     payload: { cardId: "card-1" },
     createdAt: new Date().toISOString()
   });
 
-  assert.equal(event.type, "card.created");
+  assert.equal(event.type, "ai.card-summary.requested");
 });
 
 test("contracts: validates auth context UUID claims", () => {
@@ -67,4 +73,57 @@ test("contracts: validates auth context UUID claims", () => {
       role: "editor"
     })
   );
+});
+
+test("contracts: validates ai queue inputs and accepted response", () => {
+  const summarize = queueCardSummaryInputSchema.parse({
+    reason: "Prioritize blockers."
+  });
+  const ask = askBoardInputSchema.parse({
+    boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    question: "What is blocking release?",
+    topK: 6
+  });
+  const accepted = aiJobAcceptedSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    eventType: "ai.ask-board.requested",
+    status: "queued",
+    queuedAt: new Date().toISOString()
+  });
+
+  assert.equal(summarize.reason, "Prioritize blockers.");
+  assert.equal(ask.topK, 6);
+  assert.equal(accepted.status, "queued");
+});
+
+test("contracts: validates ai event payload and strict model output schemas", () => {
+  const payload = aiCardSummaryRequestedPayloadSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    cardId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+    actorUserId: "7452e6cf-ec88-4d88-a153-6f65a272240a",
+    reason: "Summarize risks"
+  });
+
+  const summary = geminiCardSummaryOutputSchema.parse({
+    summary: "Short summary",
+    highlights: ["Key point"],
+    risks: ["Risk point"],
+    actionItems: ["Action point"]
+  });
+
+  const answer = geminiAskBoardOutputSchema.parse({
+    answer: "Grounded answer",
+    references: [
+      {
+        chunkId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+        sourceType: "card",
+        sourceId: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+        excerpt: "Excerpt"
+      }
+    ]
+  });
+
+  assert.equal(payload.reason, "Summarize risks");
+  assert.equal(summary.highlights.length, 1);
+  assert.equal(answer.references.length, 1);
 });

@@ -105,6 +105,10 @@ Before merging any non-trivial change:
 4. Add or update decision entries in `docs/DECISIONS.md` for architecture/security changes.
 5. Include migration notes for schema changes.
 
+## Commit Policy
+
+- Do not create git commits unless the user explicitly asks for a commit.
+
 ## Explicit Anti-Patterns
 
 - Business logic in Discord service.

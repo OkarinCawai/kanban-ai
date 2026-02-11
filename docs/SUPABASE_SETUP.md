@@ -18,6 +18,7 @@ Run SQL from:
 
 - `infra/db/migrations/0001_m1_core_schema.sql`
 - `infra/db/migrations/0002_m2_discord_integration.sql`
+- `infra/db/migrations/0003_m3_ai_rag_scaffold.sql`
 
 Apply it in Supabase SQL Editor or your migration pipeline.
 
@@ -32,8 +33,10 @@ Apply it in Supabase SQL Editor or your migration pipeline.
 - Supabase and Gemini keys are now wired into runtime env handling.
 - API defaults to Supabase-backed repository for request paths.
 - For isolated local tests, set `KANBAN_REPOSITORY=memory`.
-- `npm run db:migrate` applies M1 + M2 migrations using `SUPABASE_DB_URL`.
+- `npm run db:migrate` applies M1 + M2 + M3 scaffold migrations using `SUPABASE_DB_URL`.
 - `npm run test:policy` includes live Supabase RLS verification (`infra/db/tests/rls-live.test.mjs`).
+- `npm run verify:live` validates local web/api/discord/worker liveness plus M2 command-path probes.
+- Deployment runbook: `docs/M2_DEPLOY_CHECKLIST.md`.
 
 ## 5) Discord social login (M2)
 
@@ -76,7 +79,7 @@ Note: The web app uses Supabase JS `flowType: "pkce"`. If the callback URL conta
 `#access_token=...` instead of `?code=...`, you are in the implicit flow and the
 PKCE callback exchange will not run.
 
-Current API expectation (M2 in progress):
+Current API expectation (M2 complete):
 
 - Send `Authorization: Bearer <supabase_access_token>` to the API.
 - Continue sending `x-org-id` and `x-role` headers (role is still required by core use-cases; RLS remains the final enforcement layer).
@@ -108,6 +111,10 @@ Discord Developer Portal requirement for slash commands:
   - `http://localhost:3003/interactions` cannot be called by Discord directly.
 - If this URL is wrong/unreachable, Discord commands appear but invocation fails with "application did not respond".
 - In channel-level permission overrides, ensure the app can at least use application commands in that channel.
+
+Worker liveness endpoint:
+
+- `apps/worker` exposes `GET /healthz` on `WORKER_PORT` (default `3004`) for stack verification.
 
 ## 6) Dev org + membership bootstrap (required for writes under RLS)
 

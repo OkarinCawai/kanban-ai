@@ -40,6 +40,6 @@ const repositoryProvider = {
 @Module({
   controllers: [KanbanController],
   providers: [KanbanService, RequestContextStorage, repositoryProvider],
-  exports: [KanbanService, KANBAN_REPOSITORY]
+  exports: [KanbanService, KANBAN_REPOSITORY, RequestContextStorage]
 })
 export class KanbanModule {}

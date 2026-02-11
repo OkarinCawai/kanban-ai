@@ -82,6 +82,13 @@ Newest decision with same topic supersedes older entries.
 - Decision: Plan M2 around Supabase Auth Discord provider (`/auth/v1/callback`) and session exchange flow (`signInWithOAuth` + `exchangeCodeForSession` on callback route).
 - Consequences: Replaces previous custom Discord OAuth -> internal JWT login path for user sign-in.
 
+## D-011: M3 API paths are enqueue-only until async AI pipeline is complete
+- Date: 2026-02-11
+- Status: `accepted`
+- Context: AI latency must stay out of synchronous API/Discord request paths and preserve outbox reliability guarantees.
+- Decision: `POST /cards/:cardId/summarize` and `POST /ai/ask-board` only enqueue `ai.*` outbox events. Worker polling handles async progression.
+- Consequences: Immediate API responses return queued job metadata; final summaries/answers require worker completion and later retrieval paths.
+
 ## Template for new decisions
 
 Use this block for future entries:
