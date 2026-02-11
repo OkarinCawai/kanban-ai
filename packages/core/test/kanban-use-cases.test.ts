@@ -46,6 +46,18 @@ class FakeRepository implements KanbanRepository {
     return this.cards.get(cardId) ?? null;
   }
 
+  async listListsByBoardId(boardId: string): Promise<KanbanList[]> {
+    return Array.from(this.lists.values())
+      .filter((list) => list.boardId === boardId)
+      .sort((a, b) => a.position - b.position);
+  }
+
+  async listCardsByBoardId(boardId: string): Promise<Card[]> {
+    return Array.from(this.cards.values())
+      .filter((card) => card.boardId === boardId)
+      .sort((a, b) => a.position - b.position);
+  }
+
   async runInTransaction<T>(
     execute: (ctx: KanbanMutationContext) => Promise<T>
   ): Promise<T> {

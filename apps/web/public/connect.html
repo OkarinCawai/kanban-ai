@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Connect Discord</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <h1>Connect Discord Account</h1>
+        <p>Link your Discord user to your Supabase Auth session so slash commands can act on your boards.</p>
+      </header>
+
+      <section class="panel">
+        <h2>Discord Context</h2>
+        <p class="meta">
+          Discord User ID: <code id="discordUserId">Missing</code>
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Supabase Auth (Discord)</h2>
+        <p class="meta">
+          If you are not signed in, click <strong>Sign in with Discord</strong> then return here.
+        </p>
+        <div class="fields">
+          <label>
+            Supabase URL
+            <input id="supabaseUrl" placeholder="https://your-project-ref.supabase.co" />
+          </label>
+          <label>
+            Supabase Publishable Key
+            <input id="supabaseKey" placeholder="sb_publishable_..." />
+          </label>
+        </div>
+        <div class="inline" style="margin-top: 10px">
+          <button id="loginDiscordBtn">Sign in with Discord</button>
+          <button id="logoutBtn" type="button">Logout</button>
+          <button id="resetAuthBtn" type="button">Reset Auth</button>
+        </div>
+        <p class="meta">Auth User ID: <span id="authUserId">Not signed in</span></p>
+      </section>
+
+      <section class="panel">
+        <h2>Link</h2>
+        <div class="inline">
+          <button id="linkBtn" type="button">Link Discord Identity</button>
+          <a href="/" class="meta">Return to board</a>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Activity</h2>
+        <pre id="log"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="./connect.js"></script>
+  </body>
+</html>
+

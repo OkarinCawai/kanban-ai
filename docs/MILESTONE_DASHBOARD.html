@@ -289,17 +289,18 @@
           status: "in-progress",
           tasks: [
             { label: "API validates Supabase Bearer tokens", done: true },
-            { label: "Supabase Discord provider setup", done: false },
+            { label: "Supabase Discord provider setup", done: true },
             { label: "PKCE OAuth + callback code exchange", done: true },
             { label: "Session strategy across web/API", done: true },
-            { label: "Connect identity command", done: false },
-            { label: "My tasks / create / move commands", done: false }
+            { label: "Connect identity command", done: true },
+            { label: "My tasks / create / move commands", done: true }
           ],
           updates: [
             "2026-02-10: Direction updated to Supabase Auth Discord social login.",
             "2026-02-10: Auth contract aligned; M2 is unblocked and ready.",
             "2026-02-10: API accepts Authorization: Bearer <access_token> and resolves user id via Supabase Auth.",
-            "2026-02-10: Web adds Supabase Discord sign-in and callback exchange; API calls can use the Supabase session token."
+            "2026-02-10: Web adds Supabase Discord sign-in and callback exchange; API calls can use the Supabase session token.",
+            "2026-02-10: Discord interactions endpoint + API command bridge added (requires Discord app config + guild/channel mapping)."
           ]
         },
         {

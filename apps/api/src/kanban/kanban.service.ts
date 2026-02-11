@@ -107,6 +107,28 @@ export class KanbanService implements OnModuleDestroy {
     });
   }
 
+  async listListsByBoardId(context: RequestContext, boardId: string) {
+    return this.runAsContext(context, async () => {
+      const board = await this.repository.findBoardById(boardId);
+      if (!board || board.orgId !== context.orgId) {
+        throw new NotFoundException("Board was not found.");
+      }
+
+      return this.repository.listListsByBoardId(boardId);
+    });
+  }
+
+  async listCardsByBoardId(context: RequestContext, boardId: string) {
+    return this.runAsContext(context, async () => {
+      const board = await this.repository.findBoardById(boardId);
+      if (!board || board.orgId !== context.orgId) {
+        throw new NotFoundException("Board was not found.");
+      }
+
+      return this.repository.listCardsByBoardId(boardId);
+    });
+  }
+
   async onModuleDestroy(): Promise<void> {
     const possibleClosable = this.repository as unknown as Partial<Closable>;
     if (typeof possibleClosable.close === "function") {

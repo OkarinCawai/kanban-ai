@@ -3,15 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const migrationPath = path.join(
-  process.cwd(),
-  "infra",
-  "db",
-  "migrations",
-  "0001_m1_core_schema.sql"
-);
+const migrationsDir = path.join(process.cwd(), "infra", "db", "migrations");
 
-const sql = fs.readFileSync(migrationPath, "utf8");
+const migrationFiles = fs
+  .readdirSync(migrationsDir)
+  .filter((file) => file.endsWith(".sql"))
+  .sort();
+
+const sql = migrationFiles
+  .map((file) => fs.readFileSync(path.join(migrationsDir, file), "utf8"))
+  .join("\n");
 
 const requiredTables = [
   "orgs",
@@ -20,7 +21,10 @@ const requiredTables = [
   "board_members",
   "lists",
   "cards",
-  "outbox_events"
+  "outbox_events",
+  "discord_identities",
+  "discord_guilds",
+  "discord_channel_mappings"
 ];
 
 test("policy: migration includes required core tables", () => {

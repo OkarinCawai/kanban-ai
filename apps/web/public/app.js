@@ -16,7 +16,15 @@ const dom = {
   supabaseKey: document.getElementById("supabaseKey"),
   loginDiscordBtn: document.getElementById("loginDiscordBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
+  resetAuthBtn: document.getElementById("resetAuthBtn"),
   authUserId: document.getElementById("authUserId"),
+  discordGuildId: document.getElementById("discordGuildId"),
+  discordChannelId: document.getElementById("discordChannelId"),
+  discordDefaultListId: document.getElementById("discordDefaultListId"),
+  upsertDiscordGuildBtn: document.getElementById("upsertDiscordGuildBtn"),
+  upsertDiscordChannelMappingBtn: document.getElementById(
+    "upsertDiscordChannelMappingBtn"
+  ),
   boardTitle: document.getElementById("boardTitle"),
   createBoardBtn: document.getElementById("createBoardBtn"),
   boardId: document.getElementById("boardId"),
@@ -30,7 +38,8 @@ const dom = {
 
 const STORAGE_KEYS = {
   supabaseUrl: "kanban.supabaseUrl",
-  supabaseKey: "kanban.supabaseKey"
+  supabaseKey: "kanban.supabaseKey",
+  pkcePrefix: "kanban.pkce."
 };
 
 const log = (message, payload) => {
@@ -111,6 +120,75 @@ const hydrateSupabaseConfig = () => {
 let cachedSupabase = null;
 let cachedSupabaseConfig = { url: "", key: "" };
 
+const getSupabaseProjectRef = (url) => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    const ref = host.split(".")[0];
+    return ref ?? "";
+  } catch {
+    return "";
+  }
+};
+
+const getSupabaseStorageKey = (supabaseUrl) => {
+  const ref = getSupabaseProjectRef(supabaseUrl);
+  return ref ? `sb-${ref}-auth-token` : "";
+};
+
+const getSupabaseCodeVerifierKey = (supabaseUrl) => {
+  const storageKey = getSupabaseStorageKey(supabaseUrl);
+  return storageKey ? `${storageKey}-code-verifier` : "";
+};
+
+const clearSupabaseAuthStorage = (supabaseUrl) => {
+  const ref = getSupabaseProjectRef(supabaseUrl);
+  let removed = 0;
+
+  // Clear any saved PKCE snapshots from prior attempts.
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith(STORAGE_KEYS.pkcePrefix)) {
+      localStorage.removeItem(key);
+      removed += 1;
+    }
+  }
+
+  if (!ref) {
+    return removed;
+  }
+
+  const prefix = `sb-${ref}-`;
+
+  for (const key of Object.keys(localStorage)) {
+    if (key.startsWith(prefix)) {
+      localStorage.removeItem(key);
+      removed += 1;
+    }
+  }
+
+  for (const key of Object.keys(sessionStorage)) {
+    if (key.startsWith(prefix)) {
+      sessionStorage.removeItem(key);
+      removed += 1;
+    }
+  }
+
+  return removed;
+};
+
+const normalizeMaybeJsonString = (value) => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : value;
+  } catch {
+    return value;
+  }
+};
+
 const getSupabaseClient = async () => {
   const url = dom.supabaseUrl.value.trim();
   const key = dom.supabaseKey.value.trim();
@@ -127,8 +205,9 @@ const getSupabaseClient = async () => {
     return cachedSupabase;
   }
 
+  // Pin the version so auth flows don't break due to CDN "latest" changes.
   const { createClient } = await import(
-    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
+    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.3/+esm"
   );
 
   cachedSupabase = createClient(url, key, {
@@ -332,6 +411,10 @@ dom.supabaseKey.addEventListener("change", () => {
 });
 
 dom.loginDiscordBtn.addEventListener("click", async () => {
+  if (dom.loginDiscordBtn.disabled) {
+    return;
+  }
+  dom.loginDiscordBtn.disabled = true;
   try {
     persistSupabaseConfig();
     const supabase = await getSupabaseClient();
@@ -340,14 +423,118 @@ dom.loginDiscordBtn.addEventListener("click", async () => {
       return;
     }
 
-    await supabase.auth.signInWithOAuth({
+    // Avoid PKCE verifier mismatch from parallel/duplicate auth attempts by:
+    // 1) creating a unique callback marker (pkce_id),
+    // 2) capturing the generated code_verifier under that marker,
+    // 3) restoring it on the callback page before exchanging the code.
+    const pkceId = crypto.randomUUID();
+    const redirectUrl = new URL(`/auth/callback.html`, window.location.origin);
+    // Supabase drops existing query params when appending ?code=..., but it typically preserves hash.
+    // Put our PKCE attempt id in the hash so the callback can reliably restore the matching verifier.
+    redirectUrl.hash = `pkce_id=${encodeURIComponent(pkceId)}`;
+    const redirectTo = redirectUrl.toString();
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "discord",
       options: {
-        redirectTo: new URL("/auth/callback.html", window.location.origin).toString()
+        redirectTo,
+        // Avoid browser auto-redirect so we can snapshot the PKCE code_verifier first.
+        skipBrowserRedirect: true
       }
     });
+    if (error) {
+      throw error;
+    }
+
+    const verifierKey = getSupabaseCodeVerifierKey(dom.supabaseUrl.value.trim());
+    const verifierRaw =
+      (verifierKey ? localStorage.getItem(verifierKey) : null) ??
+      (verifierKey ? sessionStorage.getItem(verifierKey) : null);
+    const verifier = normalizeMaybeJsonString(verifierRaw);
+
+    if (verifier && verifierRaw && verifier !== verifierRaw) {
+      log("Normalized PKCE verifier from JSON storage format.", {
+        rawPrefix: verifierRaw.slice(0, 12),
+        normalizedPrefix: verifier.slice(0, 12)
+      });
+    }
+
+    if (verifier) {
+      localStorage.setItem(`${STORAGE_KEYS.pkcePrefix}${pkceId}`, verifier);
+      localStorage.setItem(`${STORAGE_KEYS.pkcePrefix}latest`, pkceId);
+    } else {
+      log("PKCE verifier not found in storage; exchange may fail.", { verifierKey });
+    }
+
+    if (!data?.url) {
+      throw new Error("Supabase did not return an OAuth URL.");
+    }
+
+    try {
+      const oauthUrl = new URL(data.url);
+      const challengeInUrl = oauthUrl.searchParams.get("code_challenge");
+      const methodInUrl = oauthUrl.searchParams.get("code_challenge_method");
+
+      if (challengeInUrl) {
+        localStorage.setItem(`${STORAGE_KEYS.pkcePrefix}${pkceId}.challenge`, challengeInUrl);
+      }
+      if (methodInUrl) {
+        localStorage.setItem(`${STORAGE_KEYS.pkcePrefix}${pkceId}.method`, methodInUrl);
+      }
+    } catch {
+      // Ignore: this is only used for debugging PKCE issues.
+    }
+
+    if (verifier) {
+      try {
+        const computePkceChallenge = async (rawVerifier) => {
+          const hasCryptoSupport =
+            typeof crypto !== "undefined" &&
+            typeof crypto.subtle !== "undefined" &&
+            typeof TextEncoder !== "undefined";
+
+          if (!hasCryptoSupport) {
+            return rawVerifier;
+          }
+
+          const encoder = new TextEncoder();
+          const encodedData = encoder.encode(rawVerifier);
+          const hash = await crypto.subtle.digest("SHA-256", encodedData);
+          const bytes = new Uint8Array(hash);
+
+          let binary = "";
+          for (const byte of bytes) {
+            binary += String.fromCharCode(byte);
+          }
+
+          return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        };
+
+        const oauthUrl = new URL(data.url);
+        const challengeInUrl = oauthUrl.searchParams.get("code_challenge") ?? "";
+        const methodInUrl = oauthUrl.searchParams.get("code_challenge_method") ?? "";
+        const expectedChallenge =
+          methodInUrl === "plain" ? verifier : await computePkceChallenge(verifier);
+
+        if (challengeInUrl && expectedChallenge !== challengeInUrl) {
+          log("PKCE mismatch before redirect; auth may fail.", {
+            pkceId,
+            method: methodInUrl,
+            expectedPrefix: expectedChallenge.slice(0, 12),
+            gotPrefix: challengeInUrl.slice(0, 12)
+          });
+        }
+      } catch (err) {
+        log("PKCE debug failed", { message: err?.message ?? String(err) });
+      }
+    }
+
+    window.location.assign(data.url);
   } catch (error) {
     log("Discord sign-in failed", { message: error.message });
+  } finally {
+    // If we successfully redirected, the page unloads and this doesn't matter.
+    dom.loginDiscordBtn.disabled = false;
   }
 });
 
@@ -368,5 +555,78 @@ dom.logoutBtn.addEventListener("click", async () => {
     log("Logged out.");
   } catch (error) {
     log("Logout failed", { message: error.message });
+  }
+});
+
+dom.resetAuthBtn.addEventListener("click", async () => {
+  try {
+    persistSupabaseConfig();
+    const url = dom.supabaseUrl.value.trim();
+    const removed = clearSupabaseAuthStorage(url);
+
+    cachedSupabase = null;
+    cachedSupabaseConfig = { url: "", key: "" };
+    await refreshAuthState();
+
+    log("Cleared Supabase auth storage.", { removedKeys: removed });
+  } catch (error) {
+    log("Reset auth failed", { message: error.message });
+  }
+});
+
+dom.upsertDiscordGuildBtn.addEventListener("click", async () => {
+  const guildId = dom.discordGuildId.value.trim();
+  if (!guildId) {
+    log("Discord Guild ID is required.");
+    return;
+  }
+
+  try {
+    await callApi("/discord/guilds", "POST", { guildId });
+    log("Upserted discord guild mapping.", { guildId, orgId: dom.orgId.value.trim() });
+  } catch (error) {
+    log("Discord guild mapping failed", { message: error.message });
+  }
+});
+
+dom.upsertDiscordChannelMappingBtn.addEventListener("click", async () => {
+  const guildId = dom.discordGuildId.value.trim();
+  const channelId = dom.discordChannelId.value.trim();
+  const defaultListId = dom.discordDefaultListId.value.trim();
+
+  if (!guildId) {
+    log("Discord Guild ID is required.");
+    return;
+  }
+  if (!channelId) {
+    log("Discord Channel ID is required.");
+    return;
+  }
+  if (!state.boardId) {
+    log("Create a board first so we have a board_id to map this channel to.");
+    return;
+  }
+  if (defaultListId && !state.lists.some((list) => list.id === defaultListId)) {
+    log("Default List ID must be a valid list UUID from the current board.", {
+      boardId: state.boardId
+    });
+    return;
+  }
+
+  try {
+    await callApi("/discord/channel-mappings", "POST", {
+      guildId,
+      channelId,
+      boardId: state.boardId,
+      defaultListId: defaultListId || null
+    });
+    log("Upserted discord channel mapping.", {
+      guildId,
+      channelId,
+      boardId: state.boardId,
+      defaultListId: defaultListId || null
+    });
+  } catch (error) {
+    log("Discord channel mapping failed", { message: error.message });
   }
 });

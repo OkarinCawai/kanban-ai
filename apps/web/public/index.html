@@ -58,8 +58,35 @@
         <div class="inline" style="margin-top: 10px">
           <button id="loginDiscordBtn">Sign in with Discord</button>
           <button id="logoutBtn" type="button">Logout</button>
+          <button id="resetAuthBtn" type="button">Reset Auth</button>
         </div>
         <p class="meta">Auth User ID: <span id="authUserId">Not signed in</span></p>
+      </section>
+
+      <section class="panel">
+        <h2>Discord Mapping (M2)</h2>
+        <p class="meta">
+          Map your Discord guild/channel to this org + board so `/my tasks` and card commands have context.
+          Requires org role <code>admin</code> under current RLS policies.
+        </p>
+        <div class="fields">
+          <label>
+            Discord Guild ID
+            <input id="discordGuildId" placeholder="123456789012345678" />
+          </label>
+          <label>
+            Discord Channel ID
+            <input id="discordChannelId" placeholder="123456789012345678" />
+          </label>
+          <label>
+            Default List ID (UUID)
+            <input id="discordDefaultListId" placeholder="uuid (optional)" />
+          </label>
+        </div>
+        <div class="inline" style="margin-top: 10px">
+          <button id="upsertDiscordGuildBtn" type="button">Upsert Guild</button>
+          <button id="upsertDiscordChannelMappingBtn" type="button">Upsert Channel Mapping</button>
+        </div>
       </section>
 
       <section class="panel">

@@ -71,6 +71,8 @@ export interface KanbanRepository {
   findBoardById(boardId: string): Promise<Board | null>;
   findListById(listId: string): Promise<KanbanList | null>;
   findCardById(cardId: string): Promise<Card | null>;
+  listListsByBoardId(boardId: string): Promise<KanbanList[]>;
+  listCardsByBoardId(boardId: string): Promise<Card[]>;
   runInTransaction<T>(
     execute: (ctx: KanbanMutationContext) => Promise<T>
   ): Promise<T>;

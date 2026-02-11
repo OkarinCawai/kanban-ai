@@ -1,4 +1,9 @@
 import { Module } from "@nestjs/common";
 
-@Module({})
+import { DiscordBotService } from "./discord-bot.service.js";
+
+@Module({
+  providers: [DiscordBotService]
+})
 export class DiscordModule {}
+

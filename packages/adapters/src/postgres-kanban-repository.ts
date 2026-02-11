@@ -139,6 +139,38 @@ export class PostgresKanbanRepository implements KanbanRepository {
     });
   }
 
+  async listListsByBoardId(boardId: string): Promise<KanbanList[]> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbList>(
+        `
+          select id, org_id, board_id, title, position, version, created_at, updated_at
+          from public.lists
+          where board_id = $1::uuid
+          order by position asc, created_at asc
+        `,
+        [boardId]
+      );
+
+      return result.rows.map(mapList);
+    });
+  }
+
+  async listCardsByBoardId(boardId: string): Promise<Card[]> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbCard>(
+        `
+          select id, org_id, board_id, list_id, title, description, position, version, created_at, updated_at
+          from public.cards
+          where board_id = $1::uuid
+          order by position asc, created_at asc
+        `,
+        [boardId]
+      );
+
+      return result.rows.map(mapCard);
+    });
+  }
+
   async runInTransaction<T>(
     execute: (ctx: KanbanMutationContext) => Promise<T>
   ): Promise<T> {

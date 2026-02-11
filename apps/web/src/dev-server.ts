@@ -36,6 +36,8 @@ const server = createServer((req, res) => {
 
   res.statusCode = 200;
   res.setHeader("Content-Type", contentType);
+  // Dev server: avoid stale cached JS/HTML during rapid iteration.
+  res.setHeader("Cache-Control", "no-store");
   fs.createReadStream(filePath).pipe(res);
 });
 

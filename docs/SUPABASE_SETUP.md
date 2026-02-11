@@ -17,6 +17,7 @@ Reference template: `.env.example`
 Run SQL from:
 
 - `infra/db/migrations/0001_m1_core_schema.sql`
+- `infra/db/migrations/0002_m2_discord_integration.sql`
 
 Apply it in Supabase SQL Editor or your migration pipeline.
 
@@ -31,7 +32,7 @@ Apply it in Supabase SQL Editor or your migration pipeline.
 - Supabase and Gemini keys are now wired into runtime env handling.
 - API defaults to Supabase-backed repository for request paths.
 - For isolated local tests, set `KANBAN_REPOSITORY=memory`.
-- `npm run db:migrate:m1` applies the core schema migration using `SUPABASE_DB_URL`.
+- `npm run db:migrate` applies M1 + M2 migrations using `SUPABASE_DB_URL`.
 - `npm run test:policy` includes live Supabase RLS verification (`infra/db/tests/rls-live.test.mjs`).
 
 ## 5) Discord social login (M2)
@@ -65,6 +66,12 @@ Discord Developer Portal OAuth2 redirect URL:
   - Copy it from Supabase dashboard: Authentication -> Sign In / Providers -> Discord (the "Callback URL" section).
   - For Supabase CLI local dev, the callback URL is `http://localhost:54321/auth/v1/callback`.
 
+Discord Developer Portal notes:
+
+- OAuth2 -> "Redirects" must include the Supabase callback URL above (exact match).
+- OAuth2 -> "Public Client" should be **OFF** (Supabase exchanges the Discord code using your Client Secret).
+- OAuth2 URL Generator can be ignored for Supabase Auth (it's for manually generating OAuth URLs / bot invites).
+
 Note: The web app uses Supabase JS `flowType: "pkce"`. If the callback URL contains
 `#access_token=...` instead of `?code=...`, you are in the implicit flow and the
 PKCE callback exchange will not run.
@@ -74,6 +81,34 @@ Current API expectation (M2 in progress):
 - Send `Authorization: Bearer <supabase_access_token>` to the API.
 - Continue sending `x-org-id` and `x-role` headers (role is still required by core use-cases; RLS remains the final enforcement layer).
 
+Discord command expectation (M2):
+
+- `apps/discord` exposes a Discord Interactions endpoint at `POST /interactions`.
+- Discord `/connect` returns a link to `http://localhost:3002/connect.html?discord_user_id=<snowflake>`.
+- After the identity is linked, `/my tasks`, `/card create`, `/card move` call the API via internal token:
+  - API endpoints: `POST /discord/commands/*`
+  - Required headers:
+    - `x-discord-internal-token: <DISCORD_INTERNAL_TOKEN>`
+    - `x-discord-user-id: <snowflake>`
+
+Discord guild/channel mapping (required for commands):
+
+- Map a Discord guild to an org: `public.discord_guilds(guild_id, org_id)`
+- Map a Discord channel to a board/default list: `public.discord_channel_mappings(guild_id, channel_id, board_id, default_list_id)`
+
+You can manage these rows via SQL editor, or via API endpoints:
+
+- `POST /discord/guilds` (upsert guild -> org)
+- `POST /discord/channel-mappings` (upsert channel -> board/list)
+
+Discord Developer Portal requirement for slash commands:
+
+- Set **Interactions Endpoint URL** to a publicly reachable HTTPS URL ending in `/interactions`.
+  - Example during local dev: `https://<your-tunnel-domain>/interactions`.
+  - `http://localhost:3003/interactions` cannot be called by Discord directly.
+- If this URL is wrong/unreachable, Discord commands appear but invocation fails with "application did not respond".
+- In channel-level permission overrides, ensure the app can at least use application commands in that channel.
+
 ## 6) Dev org + membership bootstrap (required for writes under RLS)
 
 RLS requires a `public.memberships` row for the `(user_id, org_id)` you are sending.
@@ -81,12 +116,15 @@ RLS requires a `public.memberships` row for the `(user_id, org_id)` you are send
 For local/dev bootstrapping, create an org + membership in Supabase SQL editor (IDs are examples):
 
 ```sql
+-- Replace placeholder values with real UUIDs (do not include angle brackets).
+-- If you are using Supabase Auth, use the "Auth User ID" shown in the web UI after sign-in
+-- (or query `auth.users` in the SQL editor).
 insert into public.orgs (id, name)
 values ('79de6cc2-e8fd-457e-bdc7-0fb591ff53d6'::uuid, 'Dev Org')
 on conflict (id) do nothing;
 
 insert into public.memberships (user_id, org_id, role)
-values ('<your-user-uuid>'::uuid, '79de6cc2-e8fd-457e-bdc7-0fb591ff53d6'::uuid, 'admin')
+values ('<paste-user-uuid-here>'::uuid, '79de6cc2-e8fd-457e-bdc7-0fb591ff53d6'::uuid, 'admin')
 on conflict (user_id, org_id) do update set role = excluded.role;
 ```
 
