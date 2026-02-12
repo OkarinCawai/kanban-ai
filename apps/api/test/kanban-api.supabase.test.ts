@@ -42,7 +42,7 @@ const viewerHeaders = {
 test(
   "api-supabase: board/list/card flow persists with outbox",
   { skip: !dbUrl },
-  async () => {
+  async (t) => {
     const admin = new Client({
       connectionString: dbUrl,
       ssl: { rejectUnauthorized: false }
@@ -50,6 +50,24 @@ test(
     const app = await createApp();
 
     await admin.connect();
+
+    const migrationCheck = await admin.query<{ present: boolean }>(
+      `
+        select exists (
+          select 1
+          from information_schema.columns
+          where table_schema = 'public'
+            and table_name = 'cards'
+            and column_name = 'start_at'
+        ) as present
+      `
+    );
+    if (!migrationCheck.rows[0]?.present) {
+      await app.close();
+      await admin.end();
+      t.skip("M8 migration 0004_m8_card_enrichment.sql is not applied in this Supabase DB.");
+      return;
+    }
 
     let boardId;
     let listTodoId;

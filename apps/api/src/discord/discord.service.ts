@@ -1,9 +1,17 @@
 import {
+  discordAiJobAcceptedSchema,
+  discordAskBoardInputSchema,
+  discordAskBoardStatusInputSchema,
   discordBoardSnapshotSchema,
+  discordCardSummaryStatusInputSchema,
+  discordCardSummaryStatusSchema,
+  discordAskBoardStatusSchema,
   discordCardResponseSchema,
+  discordCardEditInputSchema,
   discordMyTasksInputSchema,
   discordCardCreateInputSchema,
-  discordCardMoveInputSchema
+  discordCardMoveInputSchema,
+  discordCardSummarizeInputSchema
 } from "@kanban/contracts";
 import type { Role } from "@kanban/contracts";
 import type { RequestContext } from "@kanban/core";
@@ -19,6 +27,7 @@ import type { Pool, PoolClient } from "pg";
 
 import { KanbanService } from "../kanban/kanban.service.js";
 import { DISCORD_DB_POOL } from "./discord.tokens.js";
+import { AiService } from "../ai/ai.service.js";
 
 type DiscordChannelMappingRow = {
   org_id: string;
@@ -70,6 +79,7 @@ const runRlsTx = async <T>(
 export class DiscordCommandService {
   constructor(
     private readonly kanbanService: KanbanService,
+    private readonly aiService: AiService,
     @Inject(DISCORD_DB_POOL) private readonly pool: Pool | null
   ) {}
 
@@ -132,6 +142,105 @@ export class DiscordCommandService {
     });
 
     return discordCardResponseSchema.parse({ card: moved });
+  }
+
+  async cardEdit(discordUserId: string, input: unknown) {
+    const parsed = discordCardEditInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const current = await this.kanbanService.getCard(resolved.context, parsed.data.cardId);
+
+    const patch: Record<string, unknown> = {
+      expectedVersion: current.version
+    };
+
+    if ("title" in parsed.data) {
+      patch.title = parsed.data.title;
+    }
+    if ("description" in parsed.data) {
+      patch.description = parsed.data.description;
+    }
+    if ("startAt" in parsed.data) {
+      patch.startAt = parsed.data.startAt;
+    }
+    if ("dueAt" in parsed.data) {
+      patch.dueAt = parsed.data.dueAt;
+    }
+    if ("locationText" in parsed.data) {
+      patch.locationText = parsed.data.locationText;
+    }
+    if ("locationUrl" in parsed.data) {
+      patch.locationUrl = parsed.data.locationUrl;
+    }
+    if ("assigneeUserIds" in parsed.data) {
+      patch.assigneeUserIds = parsed.data.assigneeUserIds;
+    }
+    if ("labels" in parsed.data) {
+      patch.labels = parsed.data.labels;
+    }
+    if ("checklist" in parsed.data) {
+      patch.checklist = parsed.data.checklist;
+    }
+
+    const card = await this.kanbanService.updateCard(resolved.context, current.id, patch);
+    return discordCardResponseSchema.parse({ card });
+  }
+
+  async cardSummarize(discordUserId: string, input: unknown) {
+    const parsed = discordCardSummarizeInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const accepted = await this.aiService.queueCardSummary(
+      resolved.context,
+      parsed.data.cardId,
+      { reason: parsed.data.reason }
+    );
+
+    return discordAiJobAcceptedSchema.parse(accepted);
+  }
+
+  async cardSummaryStatus(discordUserId: string, input: unknown) {
+    const parsed = discordCardSummaryStatusInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const status = await this.aiService.getCardSummary(resolved.context, parsed.data.cardId);
+    return discordCardSummaryStatusSchema.parse(status);
+  }
+
+  async askBoard(discordUserId: string, input: unknown) {
+    const parsed = discordAskBoardInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const accepted = await this.aiService.queueAskBoard(resolved.context, {
+      boardId: resolved.boardId,
+      question: parsed.data.question,
+      topK: parsed.data.topK
+    });
+
+    return discordAiJobAcceptedSchema.parse(accepted);
+  }
+
+  async askBoardStatus(discordUserId: string, input: unknown) {
+    const parsed = discordAskBoardStatusInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const status = await this.aiService.getAskBoardResult(resolved.context, parsed.data.jobId);
+    return discordAskBoardStatusSchema.parse(status);
   }
 
   private async resolveContext(

@@ -41,3 +41,24 @@ Changes:
 Operational notes:
 - This migration scaffolds async AI/RAG persistence structures for M3; it does not yet implement final retrieval/ranking logic.
 - Policy coverage checks include these new tables/policies via `infra/db/tests/rls-policy-coverage.test.mjs`.
+
+## 0004_m8_card_enrichment.sql (2026-02-11)
+
+Path: `infra/db/migrations/0004_m8_card_enrichment.sql`
+
+Changes:
+- Extends `public.cards` with enrichment columns used by M8 card detail workflows:
+  - `start_at`, `due_at`
+  - `location_text`, `location_url`
+  - `assignee_user_ids` (`uuid[]`)
+  - `labels_json`, `checklist_json`
+  - `comment_count`, `attachment_count`
+- Adds integrity constraints:
+  - `cards_due_after_start_check`
+  - `cards_comment_count_nonnegative`
+  - `cards_attachment_count_nonnegative`
+- Adds due-date index: `idx_cards_due_at`.
+
+Operational notes:
+- No new tables or policies are introduced; existing `cards` RLS policies continue to enforce access control on enriched fields.
+- Included in root migration chain via `npm run db:migrate:m4`.

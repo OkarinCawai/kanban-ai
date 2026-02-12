@@ -2,6 +2,15 @@
 
 This plan turns the brief into execution checkpoints for multiple agents.
 
+## Current Delivery Sequence (2026-02-11)
+
+Execution priority for remaining milestones is explicitly:
+1. Milestone 8 (Card Enrichment: Trello-style details + badges)
+2. Milestone 4 (Thread to Card)
+3. Milestone 5 (Deterministic Covers)
+4. Milestone 6 (Hygiene + Digests)
+5. Milestone 9 (Ask-AI Evaluation Granularity + Quality Gates)
+
 ## Milestone 1: Core Kanban + Security Base
 
 Status (2026-02-10): `completed`
@@ -51,7 +60,7 @@ Exit criteria:
 
 ## Milestone 3: AI Summaries + Ask-the-Board
 
-Status (2026-02-11): `in-progress`
+Status (2026-02-11): `completed`
 
 Progress snapshot:
 - [x] M3 contracts scaffolded for ask/summarize payloads and strict model-output schemas.
@@ -59,8 +68,11 @@ Progress snapshot:
 - [x] Core use-cases enqueue `ai.*` outbox events with contract validation.
 - [x] Worker outbox poller scaffold added with `FOR UPDATE SKIP LOCKED` and retry bookkeeping.
 - [x] Initial M3 schema scaffold migration added (`0003_m3_ai_rag_scaffold.sql`).
-- [ ] Gemini adapter execution pipeline implementation.
-- [ ] Permission-aware retrieval and grounded answer persistence.
+- [x] Gemini adapter execution pipeline implemented for card summary + ask-board JSON outputs.
+- [x] Permission-aware retrieval and grounded answer persistence implemented (RLS-scoped chunk retrieval + reference filtering).
+- [x] Vector embedding generation + similarity ranking upgrade (Gemini embeddings + cosine ranking with lexical fallback).
+- [x] Async result retrieval API paths (`GET /cards/:cardId/summary`, `GET /ai/ask-board/:jobId`).
+- [x] Web/Discord polling integration for async AI completion states.
 
 Deliverables:
 - Gemini adapter with strict schema output validation.
@@ -103,6 +115,112 @@ Deliverables:
 
 Exit criteria:
 - Scheduled jobs execute safely with retry/idempotency protections.
+
+## Milestone 7: Frontend UX Hardening for LLM Evaluation
+
+Status (2026-02-11): `completed`
+
+Progress snapshot:
+- [x] Brutalist frontend plan drafted (`docs/FRONTEND_BRUTALIST_PLAN.md`).
+- [x] Board UI upgraded from M1 scaffold to production-grade UX shell.
+- [x] Ask-board and card-summary async states unified (`queued/processing/completed/failed`).
+- [x] Desktop keyboard + ARIA hardening pass (skip link, live status, keyboard card controls).
+- [x] Desktop accessibility pass completed (landmarks, aria-live, keyboard controls, reduced motion).
+- [x] Mobile interaction hardening deferred until full app readiness (non-blocking for current delivery).
+
+Deliverables:
+- Distinctive brutalist/fun visual system for `apps/web`.
+- Improved board/list/card ergonomics with optimistic interaction feedback.
+- AI dock for ask-board prompts, status tracking, and grounded references.
+- Diagnostics hooks for LLM evaluation capture (question/answer/reference bundle).
+
+Exit criteria:
+- Teams can run realistic LLM evaluation loops from web without relying on raw logs.
+- UI clearly represents async AI lifecycle and failure recovery.
+- Existing auth + API contract flows remain compatible.
+- Desktop-first delivery accepted; mobile tuning deferred by product priority.
+
+## Milestone 8: Card Enrichment (Trello-Style Details + Badges)
+
+Status (2026-02-11): `in-progress`
+
+Progress snapshot:
+- [x] Milestone kickoff approved after M7 completion.
+- [x] Card detail panel supports editing for title/description/assignees/dates/location/labels/checklist/counts.
+- [x] Board cards render metadata badges (due/checklist/comments/attachments/assignees/labels).
+- [x] API/contracts/schema support enriched card fields and checklist lifecycle.
+- [x] Discord command path supports core enriched card mutations (`/card edit` adapter flow).
+- [ ] Live Supabase environments have migration `0004_m8_card_enrichment.sql` applied and verified in API Supabase e2e test.
+
+Deliverables:
+- Card details editing:
+  - Description field (rich text or markdown-safe text).
+  - Multi-assignee support with member picker.
+  - Start date + due date with overdue/upcoming status semantics.
+  - Location field (text + optional map URL).
+  - Checklist create/update/complete/reorder with progress summary.
+  - Label assignment and color badges.
+- Board card visual metadata:
+  - Assignee avatars/initials.
+  - Due date badge.
+  - Checklist progress badge.
+  - Comment/attachment count badges.
+  - Label strips/chips.
+- Contract-first + persistence work:
+  - DTO/event updates in `packages/contracts`.
+  - Core use-cases and validation in `packages/core`.
+  - DB migration + RLS policy coverage for any new structures/columns.
+  - Outbox events for side effects triggered by enriched card mutations.
+- Integration adapters:
+  - API endpoints for enriched card update/read paths.
+  - Discord command expansion for assign/date/checklist actions (adapter-only orchestration).
+- Testing:
+  - Domain rule tests for enriched card updates.
+  - API integration tests for permission + optimistic concurrency.
+  - RLS policy tests for new/updated tables.
+
+Exit criteria:
+- Teams can fully populate and maintain card details (description, assignees, dates, location, checklist, labels) from web without direct SQL edits.
+- Board cards clearly surface card metadata badges at a glance.
+- Enriched mutations remain RLS-safe, contract-first, and outbox-compliant.
+- Delivery order note: Execute immediately after M7.
+
+## Milestone 9: Ask-AI Evaluation Granularity + Quality Gates
+
+Status (2026-02-11): `planned`
+
+Progress snapshot:
+- [ ] Curated evaluation fixture boards are defined (known-good answers + references).
+- [ ] Permission-boundary evaluation suite is defined (cross-org/cross-board denial cases).
+- [ ] Grounding quality checks are defined (reference precision/coverage expectations).
+- [ ] Async lifecycle checks are defined (`queued/processing/completed/failed` timing + UX states).
+- [ ] Fallback-path checks are defined (embedding failure -> lexical fallback behavior).
+- [ ] Prompt-injection resilience checks are defined (ignore adversarial card text).
+- [ ] Dashboard/report output for evaluation runs is defined (pass/fail by scenario).
+
+Deliverables:
+- Test-plan artifact:
+  - `docs/ASK_AI_EVAL_PLAN.md` with scenario matrix, fixtures, and run procedure.
+- Evaluation fixtures:
+  - Seed data shape for at least 3 boards with deterministic reference chunks.
+  - Question set grouped by intent: factual lookup, synthesis, ambiguity, and negative/no-answer.
+- Automated checks:
+  - API-level checks for `POST /ai/ask-board` enqueue contract + `GET /ai/ask-board/:jobId` completion contract.
+  - Reference validation checks (answer must include only accessible source excerpts).
+  - RLS leakage checks (no references from unauthorized boards/orgs).
+  - Retry/failure checks for outbox + worker idempotent completion.
+- Quality gates:
+  - Grounding gate: answer includes references for supported answers.
+  - Safety gate: inaccessible content never appears in answer/references.
+  - Reliability gate: no duplicate completion side effects across retries.
+  - UX gate: web/Discord show bounded polling result with explicit queued/failed fallback copy.
+
+Exit criteria:
+- Ask-AI evaluation runs are repeatable and produce scenario-level pass/fail output.
+- Permission leakage test cases all pass.
+- Grounded-answer scenarios meet defined thresholds in the evaluation plan.
+- Failure/fallback scenarios are observable and recoverable without manual DB edits.
+- Delivery order note: Execute after M4/M5/M6 are complete.
 
 ## Cross-Cutting Requirements (all milestones)
 

@@ -89,6 +89,41 @@ Newest decision with same topic supersedes older entries.
 - Decision: `POST /cards/:cardId/summarize` and `POST /ai/ask-board` only enqueue `ai.*` outbox events. Worker polling handles async progression.
 - Consequences: Immediate API responses return queued job metadata; final summaries/answers require worker completion and later retrieval paths.
 
+## D-012: Initial ask-board retrieval uses RLS-scoped lexical chunks seeded from card content
+- Date: 2026-02-11
+- Status: `accepted`
+- Context: M3 needs permission-aware grounded answers before the full embedding/vector pipeline is complete.
+- Decision: Worker syncs board card text into `documents`/`document_chunks`, then executes ask-board retrieval under actor-scoped JWT claims (`SET LOCAL ROLE authenticated` + `request.jwt.claim.*`) and ranks chunks lexically.
+- Consequences: Ask-board answers are grounded and permission-aware now, while embedding generation and vector similarity ranking remain a follow-up enhancement.
+
+## D-013: Ask-board retrieval upgrades to Gemini embeddings with lexical fallback
+- Date: 2026-02-11
+- Status: `accepted`
+- Context: M3 requires stronger semantic retrieval than lexical-only ranking, without losing permission guarantees under RLS.
+- Decision: Worker generates/stores Gemini embeddings (`text-embedding-004` by default) for chunked board documents and ranks ask-board contexts using cosine similarity on `document_embeddings`. If embedding generation/query fails, retrieval falls back to lexical ranking.
+- Consequences: Retrieval quality improves for semantically similar phrasing while preserving RLS scoping; fallback keeps ask-board resilient during embedding outages.
+
+## D-014: Async AI completion is exposed through status-read APIs
+- Date: 2026-02-11
+- Status: `accepted`
+- Context: Enqueue-only AI endpoints need a supported read path so web/Discord adapters can observe queued vs completed results.
+- Decision: Add `GET /cards/:cardId/summary` and `GET /ai/ask-board/:jobId` APIs; enqueue paths persist initial `queued` rows in `card_summaries` / `ai_ask_requests`, and worker completion updates those records asynchronously.
+- Consequences: Request-response latency remains low for enqueue calls while clients gain explicit polling targets for async completion UX.
+
+## D-015: Discord and web clients use bounded polling for async AI completion
+- Date: 2026-02-11
+- Status: `accepted`
+- Context: M3 async AI work requires user-facing completion feedback without introducing realtime infrastructure in MVP.
+- Decision: Web and Discord issue bounded polling requests to summary/ask status endpoints after enqueue and render either completed outputs or explicit queued state fallback.
+- Consequences: Delivers usable async UX in MVP while keeping v1 scope aligned with the no-realtime decision.
+
+## D-016: M8 card enrichment uses extended `cards` columns plus JSONB checklist/labels
+- Date: 2026-02-11
+- Status: `accepted`
+- Context: M8 needs Trello-style card details quickly while preserving RLS simplicity and existing board/card mutation flows.
+- Decision: Extend `public.cards` with scalar detail columns (`start_at`, `due_at`, location, counts, assignee UUID array) and JSONB arrays for labels/checklist. Keep mutation paths on existing card create/update endpoints with optimistic concurrency.
+- Consequences: Enables rapid delivery without introducing additional RLS policy surfaces in M8; checklist/label operations are patch-based and may be normalized into dedicated tables later if query/performance demands increase.
+
 ## Template for new decisions
 
 Use this block for future entries:

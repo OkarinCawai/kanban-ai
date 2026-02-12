@@ -111,6 +111,58 @@ test("api: move card rejects stale version", async () => {
   }
 });
 
+test("api: update card supports enriched detail fields", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+    const boardId = boardResponse.body.id as string;
+
+    const listResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId, title: "Todo", position: 0 });
+
+    const cardResponse = await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: listResponse.body.id, title: "Implement API" });
+
+    const patchResponse = await request(app.getHttpServer())
+      .patch(`/cards/${cardResponse.body.id}`)
+      .set(authHeaders)
+      .send({
+        expectedVersion: cardResponse.body.version,
+        description: "Implementation details",
+        startAt: "2026-02-12T09:00:00.000Z",
+        dueAt: "2026-02-14T17:00:00.000Z",
+        locationText: "HQ",
+        locationUrl: "https://maps.example.com/hq",
+        assigneeUserIds: [authHeaders["x-user-id"]],
+        labels: [{ name: "urgent", color: "red" }],
+        checklist: [
+          { title: "Draft API contract", isDone: true, position: 0 },
+          { title: "Add tests", isDone: false, position: 1024 }
+        ],
+        commentCount: 3,
+        attachmentCount: 2
+      });
+
+    assert.equal(patchResponse.status, 200);
+    assert.equal(patchResponse.body.description, "Implementation details");
+    assert.equal(patchResponse.body.assigneeUserIds.length, 1);
+    assert.equal(patchResponse.body.labels.length, 1);
+    assert.equal(patchResponse.body.checklist.length, 2);
+    assert.equal(patchResponse.body.commentCount, 3);
+    assert.equal(patchResponse.body.attachmentCount, 2);
+  } finally {
+    await app.close();
+  }
+});
+
 test("api: mutation writes outbox entry", async () => {
   const { app, repository } = await createApp();
 
@@ -189,6 +241,157 @@ test("api: ask-board enqueues ai outbox event", async () => {
 
     const lastEvent = repository.getOutboxEvents().at(-1);
     assert.equal(lastEvent?.type, "ai.ask-board.requested");
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: card summary status returns queued before worker completion", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    const listResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId: boardResponse.body.id, title: "Todo", position: 0 });
+
+    const cardResponse = await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: listResponse.body.id, title: "Implement API", position: 1 });
+
+    await request(app.getHttpServer())
+      .post(`/cards/${cardResponse.body.id}/summarize`)
+      .set(authHeaders)
+      .send({ reason: "Prepare async summary" });
+
+    const status = await request(app.getHttpServer())
+      .get(`/cards/${cardResponse.body.id}/summary`)
+      .set(authHeaders);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, "queued");
+    assert.equal(status.body.cardId, cardResponse.body.id);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: ask-board status returns queued persisted status before completion", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    const queued = await request(app.getHttpServer())
+      .post("/ai/ask-board")
+      .set(authHeaders)
+      .send({
+        boardId: boardResponse.body.id,
+        question: "What should the team focus on this week?",
+        topK: 6
+      });
+
+    const status = await request(app.getHttpServer())
+      .get(`/ai/ask-board/${queued.body.jobId}`)
+      .set(authHeaders);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, "queued");
+    assert.equal(status.body.jobId, queued.body.jobId);
+    assert.equal(status.body.topK, 6);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: card summary status returns completed payload when persisted", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    const listResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId: boardResponse.body.id, title: "Todo", position: 0 });
+
+    const cardResponse = await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: listResponse.body.id, title: "Implement API", position: 1 });
+
+    repository.seedCardSummary({
+      cardId: cardResponse.body.id,
+      status: "completed",
+      summary: {
+        summary: "Implementation details summarized.",
+        highlights: ["Controllers are in place."],
+        risks: ["Worker retries still pending."],
+        actionItems: ["Add e2e coverage."]
+      },
+      updatedAt: new Date().toISOString()
+    });
+
+    const status = await request(app.getHttpServer())
+      .get(`/cards/${cardResponse.body.id}/summary`)
+      .set(authHeaders);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, "completed");
+    assert.equal(status.body.summary.highlights.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: ask-board status returns completed payload when persisted", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    repository.seedAskBoardResult({
+      jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+      boardId: boardResponse.body.id,
+      question: "What should we focus on?",
+      topK: 6,
+      status: "completed",
+      answer: {
+        answer: "Focus on stabilizing worker retries.",
+        references: [
+          {
+            chunkId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+            sourceType: "card",
+            sourceId: "card-1",
+            excerpt: "Worker retries continue to fail in staging."
+          }
+        ]
+      },
+      updatedAt: new Date().toISOString()
+    });
+
+    const status = await request(app.getHttpServer())
+      .get("/ai/ask-board/f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a")
+      .set(authHeaders);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, "completed");
+    assert.equal(status.body.answer.references.length, 1);
   } finally {
     await app.close();
   }

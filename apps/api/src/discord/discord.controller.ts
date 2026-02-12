@@ -7,7 +7,12 @@ import {
 } from "@nestjs/common";
 
 import type {
+  DiscordAskBoardInput,
+  DiscordAskBoardStatusInput,
   DiscordCardCreateInput,
+  DiscordCardSummarizeInput,
+  DiscordCardSummaryStatusInput,
+  DiscordCardEditInput,
   DiscordCardMoveInput,
   DiscordMyTasksInput
 } from "@kanban/contracts";
@@ -79,5 +84,54 @@ export class DiscordController {
     const discordUserId = this.requireDiscordUserId(headers);
     return this.discordService.cardMove(discordUserId, body);
   }
-}
 
+  @Post("commands/card-edit")
+  async cardEdit(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordCardEditInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.cardEdit(discordUserId, body);
+  }
+
+  @Post("commands/card-summarize")
+  async cardSummarize(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordCardSummarizeInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.cardSummarize(discordUserId, body);
+  }
+
+  @Post("commands/card-summary-status")
+  async cardSummaryStatus(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordCardSummaryStatusInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.cardSummaryStatus(discordUserId, body);
+  }
+
+  @Post("commands/ask-board")
+  async askBoard(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordAskBoardInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.askBoard(discordUserId, body);
+  }
+
+  @Post("commands/ask-board-status")
+  async askBoardStatus(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordAskBoardStatusInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.askBoardStatus(discordUserId, body);
+  }
+}

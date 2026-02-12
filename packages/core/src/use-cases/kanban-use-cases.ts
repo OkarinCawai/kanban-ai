@@ -1,4 +1,6 @@
 import {
+  type CardChecklistItem,
+  type CardLabel,
   createBoardInputSchema,
   createCardInputSchema,
   createListInputSchema,
@@ -17,7 +19,8 @@ import type {
   Clock,
   IdGenerator,
   KanbanRepository,
-  RequestContext
+  RequestContext,
+  UpdateCardParams
 } from "../ports/kanban-repository.js";
 
 export interface KanbanUseCaseDeps {
@@ -46,6 +49,100 @@ const parseOrThrow = <T>(
   }
 
   return parsed.data;
+};
+
+type LabelDraft = {
+  id?: string;
+  name: string;
+  color: CardLabel["color"];
+};
+
+type ChecklistDraft = {
+  id?: string;
+  title: string;
+  isDone?: boolean;
+  position?: number;
+};
+
+const dedupeUserIds = (ids: readonly string[] | undefined): string[] | undefined => {
+  if (!ids) {
+    return undefined;
+  }
+  return Array.from(new Set(ids));
+};
+
+const ensureDueAfterStart = (
+  startAt: string | null | undefined,
+  dueAt: string | null | undefined
+): void => {
+  if (!startAt || !dueAt) {
+    return;
+  }
+
+  if (new Date(dueAt).valueOf() < new Date(startAt).valueOf()) {
+    throw new ValidationError("Due date must be equal or later than start date.");
+  }
+};
+
+const normalizeLabels = (
+  labels: readonly LabelDraft[] | undefined,
+  nextId: () => string
+): CardLabel[] | undefined => {
+  if (!labels) {
+    return undefined;
+  }
+
+  const seen = new Set<string>();
+  const normalized: CardLabel[] = [];
+  for (const label of labels) {
+    const name = label.name.trim();
+    const dedupeKey = `${name.toLowerCase()}::${label.color}`;
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    normalized.push({
+      id: label.id ?? nextId(),
+      name,
+      color: label.color
+    });
+    seen.add(dedupeKey);
+  }
+
+  return normalized;
+};
+
+const normalizeChecklist = (
+  checklist: readonly ChecklistDraft[] | undefined,
+  nextId: () => string
+): CardChecklistItem[] | undefined => {
+  if (!checklist) {
+    return undefined;
+  }
+
+  const seenIds = new Set<string>();
+  const normalized = checklist
+    .map((item, index) => {
+      const id = item.id ?? nextId();
+      if (seenIds.has(id)) {
+        return null;
+      }
+      seenIds.add(id);
+
+      return {
+        id,
+        title: item.title.trim(),
+        isDone: Boolean(item.isDone),
+        position:
+          typeof item.position === "number" && Number.isFinite(item.position)
+            ? item.position
+            : index * 1024
+      } satisfies CardChecklistItem;
+    })
+    .filter((item): item is CardChecklistItem => item !== null)
+    .sort((a, b) => a.position - b.position);
+
+  return normalized;
 };
 
 export class KanbanUseCases {
@@ -153,6 +250,17 @@ export class KanbanUseCases {
         listId: list.id,
         title: parsed.title,
         description: parsed.description,
+        startAt: parsed.startAt,
+        dueAt: parsed.dueAt,
+        locationText: parsed.locationText,
+        locationUrl: parsed.locationUrl,
+        assigneeUserIds: dedupeUserIds(parsed.assigneeUserIds) ?? [],
+        labels:
+          normalizeLabels(parsed.labels, () => this.deps.idGenerator.next("label")) ?? [],
+        checklist:
+          normalizeChecklist(parsed.checklist, () => this.deps.idGenerator.next("check")) ?? [],
+        commentCount: parsed.commentCount ?? 0,
+        attachmentCount: parsed.attachmentCount ?? 0,
         position: parsed.position ?? 0,
         createdAt: now
       });
@@ -190,17 +298,62 @@ export class KanbanUseCases {
       throw new ConflictError("Card version is stale.");
     }
 
+    const nextStartAt =
+      parsed.startAt !== undefined ? parsed.startAt : (card.startAt ?? null);
+    const nextDueAt = parsed.dueAt !== undefined ? parsed.dueAt : (card.dueAt ?? null);
+    ensureDueAfterStart(nextStartAt, nextDueAt);
+
     const now = this.deps.clock.nowIso();
     const eventId = this.deps.idGenerator.next("evt");
 
     return this.deps.repository.runInTransaction(async (tx) => {
-      const updated = await tx.updateCard({
+      const updateInput: UpdateCardParams = {
         cardId: card.id,
-        title: parsed.title,
-        description: parsed.description,
         expectedVersion: parsed.expectedVersion,
         updatedAt: now
-      });
+      };
+
+      if ("title" in parsed) {
+        updateInput.title = parsed.title;
+      }
+      if ("description" in parsed) {
+        updateInput.description = parsed.description;
+      }
+      if ("startAt" in parsed) {
+        updateInput.startAt = parsed.startAt;
+      }
+      if ("dueAt" in parsed) {
+        updateInput.dueAt = parsed.dueAt;
+      }
+      if ("locationText" in parsed) {
+        updateInput.locationText = parsed.locationText;
+      }
+      if ("locationUrl" in parsed) {
+        updateInput.locationUrl = parsed.locationUrl;
+      }
+      if ("assigneeUserIds" in parsed) {
+        updateInput.assigneeUserIds = dedupeUserIds(parsed.assigneeUserIds) ?? [];
+      }
+      if ("labels" in parsed) {
+        updateInput.labels = normalizeLabels(
+          parsed.labels,
+          () => this.deps.idGenerator.next("label")
+        ) ?? [];
+      }
+      if ("checklist" in parsed) {
+        updateInput.checklist = normalizeChecklist(
+          parsed.checklist,
+          () => this.deps.idGenerator.next("check")
+        ) ?? [];
+      }
+      if ("commentCount" in parsed) {
+        updateInput.commentCount = parsed.commentCount;
+      }
+      if ("attachmentCount" in parsed) {
+        updateInput.attachmentCount = parsed.attachmentCount;
+      }
+
+      const updated = await tx.updateCard(updateInput);
 
       await tx.appendOutbox({
         id: eventId,

@@ -7,6 +7,7 @@ import { AiService } from "./ai.service.js";
 @Module({
   imports: [KanbanModule],
   controllers: [AiController],
-  providers: [AiService]
+  providers: [AiService],
+  exports: [AiService]
 })
 export class AiModule {}

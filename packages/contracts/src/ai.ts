@@ -18,6 +18,13 @@ export const aiEventTypeSchema = z.enum([
   "ai.ask-board.requested"
 ]);
 
+export const aiJobStatusSchema = z.enum([
+  "queued",
+  "processing",
+  "completed",
+  "failed"
+]);
+
 export const aiJobAcceptedSchema = z.object({
   jobId: uuidString,
   eventType: aiEventTypeSchema,
@@ -59,9 +66,45 @@ export const geminiAskBoardOutputSchema = z.object({
   references: z.array(askBoardReferenceSchema).min(1).max(20)
 });
 
+export const cardSummaryResultSchema = z
+  .object({
+    cardId: uuidString,
+    status: aiJobStatusSchema,
+    summary: geminiCardSummaryOutputSchema.optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.summary) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed summary results must include summary payload."
+      });
+    }
+  });
+
+export const askBoardResultSchema = z
+  .object({
+    jobId: uuidString,
+    boardId: uuidString,
+    question: nonEmptyString.max(4_000),
+    topK: z.number().int().positive().max(20),
+    status: aiJobStatusSchema,
+    answer: geminiAskBoardOutputSchema.optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.answer) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed ask-board results must include answer payload."
+      });
+    }
+  });
+
 export type QueueCardSummaryInput = z.infer<typeof queueCardSummaryInputSchema>;
 export type AskBoardInput = z.infer<typeof askBoardInputSchema>;
 export type AiEventType = z.infer<typeof aiEventTypeSchema>;
+export type AiJobStatus = z.infer<typeof aiJobStatusSchema>;
 export type AiJobAccepted = z.infer<typeof aiJobAcceptedSchema>;
 export type AiCardSummaryRequestedPayload = z.infer<
   typeof aiCardSummaryRequestedPayloadSchema
@@ -71,3 +114,5 @@ export type AiAskBoardRequestedPayload = z.infer<
 >;
 export type GeminiCardSummaryOutput = z.infer<typeof geminiCardSummaryOutputSchema>;
 export type GeminiAskBoardOutput = z.infer<typeof geminiAskBoardOutputSchema>;
+export type CardSummaryResult = z.infer<typeof cardSummaryResultSchema>;
+export type AskBoardResult = z.infer<typeof askBoardResultSchema>;

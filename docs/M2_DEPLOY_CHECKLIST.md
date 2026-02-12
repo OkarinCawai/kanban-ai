@@ -4,7 +4,18 @@ Use this checklist before calling Milestone 2 fully live.
 
 ## 1) Start services
 
-Run each service with its workspace start command:
+Preferred (single command, includes Cloudflare tunnel reboot on each restart):
+
+- `npm run dev:restart`
+
+Useful stack commands:
+
+- `npm run dev:start`
+- `npm run dev:stop`
+- `npm run dev:status`
+- `npm run dev:start:no-tunnel` (skip Cloudflare)
+
+If you need manual fallback, run each service workspace start command:
 
 - `npm run start --workspace @kanban/api`
 - `npm run start --workspace @kanban/web`
@@ -17,6 +28,10 @@ Expected local ports:
 - Web: `3002`
 - Discord interactions: `3003`
 - Worker health: `3004` (`GET /healthz`)
+
+Cloudflare quick tunnel logs:
+
+- `dev_tunnel_err.log` (includes generated `https://*.trycloudflare.com` URL)
 
 ## 2) Verify stack + M2 command path
 

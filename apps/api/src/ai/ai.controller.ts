@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Get,
   Headers,
   Param,
+  ParseUUIDPipe,
   Post
 } from "@nestjs/common";
 
@@ -16,7 +18,7 @@ export class AiController {
   @Post("cards/:cardId/summarize")
   async summarizeCard(
     @Headers() headers: Record<string, string | string[] | undefined>,
-    @Param("cardId") cardId: string,
+    @Param("cardId", new ParseUUIDPipe()) cardId: string,
     @Body() body: unknown
   ) {
     const context = await toRequestContext(headers);
@@ -30,5 +32,23 @@ export class AiController {
   ) {
     const context = await toRequestContext(headers);
     return this.aiService.queueAskBoard(context, body);
+  }
+
+  @Get("cards/:cardId/summary")
+  async getCardSummary(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("cardId", new ParseUUIDPipe()) cardId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.getCardSummary(context, cardId);
+  }
+
+  @Get("ai/ask-board/:jobId")
+  async getAskBoardResult(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("jobId", new ParseUUIDPipe()) jobId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.getAskBoardResult(context, jobId);
   }
 }

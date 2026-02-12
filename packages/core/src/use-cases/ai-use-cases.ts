@@ -1,5 +1,7 @@
 import {
+  askBoardResultSchema,
   aiJobAcceptedSchema,
+  cardSummaryResultSchema,
   askBoardInputSchema,
   outboxEventTypeSchema,
   queueCardSummaryInputSchema
@@ -50,6 +52,15 @@ export class AiUseCases {
     const jobId = this.deps.idGenerator.next("evt");
 
     await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertCardSummary({
+        id: jobId,
+        orgId: context.orgId,
+        boardId: card.boardId,
+        cardId: card.id,
+        status: "queued",
+        updatedAt: now
+      });
+
       await tx.appendOutbox({
         id: jobId,
         type: outboxEventTypeSchema.parse("ai.card-summary.requested"),
@@ -89,6 +100,17 @@ export class AiUseCases {
     const topK = parsed.topK ?? 8;
 
     await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertAskBoardRequest({
+        id: jobId,
+        orgId: context.orgId,
+        boardId: board.id,
+        requesterUserId: context.userId,
+        question: parsed.question,
+        topK,
+        status: "queued",
+        updatedAt: now
+      });
+
       await tx.appendOutbox({
         id: jobId,
         type: outboxEventTypeSchema.parse("ai.ask-board.requested"),
@@ -111,5 +133,39 @@ export class AiUseCases {
       status: "queued",
       queuedAt: now
     });
+  }
+
+  async getCardSummary(
+    context: RequestContext,
+    cardId: string
+  ) {
+    const card = await this.deps.repository.findCardById(cardId);
+    if (!card || card.orgId !== context.orgId) {
+      throw new NotFoundError("Card was not found in your organization.");
+    }
+
+    const summary = await this.deps.repository.findCardSummaryByCardId(card.id);
+    if (!summary) {
+      throw new NotFoundError("Card summary request was not found.");
+    }
+
+    return cardSummaryResultSchema.parse(summary);
+  }
+
+  async getAskBoardResult(
+    context: RequestContext,
+    jobId: string
+  ) {
+    const completed = await this.deps.repository.findAskBoardResultByJobId(jobId);
+    if (!completed) {
+      throw new NotFoundError("Ask-board request was not found.");
+    }
+
+    const board = await this.deps.repository.findBoardById(completed.boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Ask-board request was not found.");
+    }
+
+    return askBoardResultSchema.parse(completed);
   }
 }

@@ -84,3 +84,31 @@ test("policy: outbox retry-safe columns are present", () => {
     assert.match(sql, new RegExp(`\\b${column}\\b`, "i"), `Missing outbox column ${column}`);
   }
 });
+
+test("policy: M8 card enrichment columns and constraints are present", () => {
+  const requiredCardColumns = [
+    "start_at",
+    "due_at",
+    "location_text",
+    "location_url",
+    "assignee_user_ids",
+    "labels_json",
+    "checklist_json",
+    "comment_count",
+    "attachment_count"
+  ];
+
+  for (const column of requiredCardColumns) {
+    assert.match(sql, new RegExp(`\\b${column}\\b`, "i"), `Missing card enrichment column ${column}`);
+  }
+
+  const requiredConstraints = [
+    "cards_due_after_start_check",
+    "cards_comment_count_nonnegative",
+    "cards_attachment_count_nonnegative"
+  ];
+
+  for (const constraint of requiredConstraints) {
+    assert.match(sql, new RegExp(`\\b${constraint}\\b`, "i"), `Missing card constraint ${constraint}`);
+  }
+});

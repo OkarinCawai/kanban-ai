@@ -58,6 +58,24 @@ export class AiService {
     );
   }
 
+  async getCardSummary(
+    context: RequestContext,
+    cardId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getCardSummary(context, cardId))
+    );
+  }
+
+  async getAskBoardResult(
+    context: RequestContext,
+    jobId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getAskBoardResult(context, jobId))
+    );
+  }
+
   private async execute<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();

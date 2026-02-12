@@ -9,6 +9,9 @@ Use `.env` (already ignored by Git) with these keys:
 - `SUPABASE_SERVICE_ROLE_KEY` (optional until backend admin tasks are needed)
 - `SUPABASE_DB_URL` (needed for direct SQL migrations/tests)
 - `GEMINI_API_KEY`
+- `GEMINI_MODEL` (optional; defaults to `gemini-2.0-flash`)
+- `GEMINI_EMBEDDING_MODEL` (optional; defaults to `text-embedding-004`)
+- `BOARD_DOCUMENT_SYNC_LIMIT` (optional; defaults to `50`)
 
 Reference template: `.env.example`
 
@@ -88,7 +91,7 @@ Discord command expectation (M2):
 
 - `apps/discord` exposes a Discord Interactions endpoint at `POST /interactions`.
 - Discord `/connect` returns a link to `http://localhost:3002/connect.html?discord_user_id=<snowflake>`.
-- After the identity is linked, `/my tasks`, `/card create`, `/card move` call the API via internal token:
+- After the identity is linked, `/my tasks`, `/card create`, `/card move`, `/card summarize`, and `/ai ask` call the API via internal token:
   - API endpoints: `POST /discord/commands/*`
   - Required headers:
     - `x-discord-internal-token: <DISCORD_INTERNAL_TOKEN>`
@@ -109,6 +112,8 @@ Discord Developer Portal requirement for slash commands:
 - Set **Interactions Endpoint URL** to a publicly reachable HTTPS URL ending in `/interactions`.
   - Example during local dev: `https://<your-tunnel-domain>/interactions`.
   - `http://localhost:3003/interactions` cannot be called by Discord directly.
+- Restart stack with tunnel reboot when needed: `npm run dev:restart`
+  - The quick tunnel URL is printed by `dev:restart` and also written to `dev_tunnel_err.log`.
 - If this URL is wrong/unreachable, Discord commands appear but invocation fails with "application did not respond".
 - In channel-level permission overrides, ensure the app can at least use application commands in that channel.
 

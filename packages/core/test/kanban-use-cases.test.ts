@@ -7,10 +7,14 @@ import {
   ConflictError,
   ForbiddenError,
   NotFoundError,
+  ValidationError,
   type KanbanMutationContext,
   type KanbanRepository,
   KanbanUseCases
 } from "../src/index.js";
+
+const hasOwn = (value: object, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(value, key);
 
 class FakeRepository implements KanbanRepository {
   private boards = new Map<string, Board>();
@@ -44,6 +48,14 @@ class FakeRepository implements KanbanRepository {
 
   async findCardById(cardId: string): Promise<Card | null> {
     return this.cards.get(cardId) ?? null;
+  }
+
+  async findCardSummaryByCardId(_cardId: string): Promise<null> {
+    return null;
+  }
+
+  async findAskBoardResultByJobId(_jobId: string): Promise<null> {
+    return null;
   }
 
   async listListsByBoardId(boardId: string): Promise<KanbanList[]> {
@@ -106,6 +118,15 @@ class FakeRepository implements KanbanRepository {
           listId: input.listId,
           title: input.title,
           description: input.description,
+          startAt: input.startAt,
+          dueAt: input.dueAt,
+          locationText: input.locationText,
+          locationUrl: input.locationUrl,
+          assigneeUserIds: input.assigneeUserIds ?? [],
+          labels: input.labels ?? [],
+          checklist: input.checklist ?? [],
+          commentCount: input.commentCount ?? 0,
+          attachmentCount: input.attachmentCount ?? 0,
           position: input.position,
           version: 0,
           createdAt: input.createdAt,
@@ -124,10 +145,43 @@ class FakeRepository implements KanbanRepository {
           throw new ConflictError("Version mismatch.");
         }
 
+        const nextDescription = hasOwn(input, "description")
+          ? (input.description ?? undefined)
+          : current.description;
+        const nextStartAt = hasOwn(input, "startAt")
+          ? (input.startAt ?? undefined)
+          : current.startAt;
+        const nextDueAt = hasOwn(input, "dueAt")
+          ? (input.dueAt ?? undefined)
+          : current.dueAt;
+
         const updated: Card = {
           ...current,
           title: input.title ?? current.title,
-          description: input.description ?? current.description,
+          description: nextDescription,
+          startAt: nextStartAt,
+          dueAt: nextDueAt,
+          locationText: hasOwn(input, "locationText")
+            ? (input.locationText ?? undefined)
+            : current.locationText,
+          locationUrl: hasOwn(input, "locationUrl")
+            ? (input.locationUrl ?? undefined)
+            : current.locationUrl,
+          assigneeUserIds: hasOwn(input, "assigneeUserIds")
+            ? (input.assigneeUserIds ?? [])
+            : (current.assigneeUserIds ?? []),
+          labels: hasOwn(input, "labels")
+            ? (input.labels ?? [])
+            : (current.labels ?? []),
+          checklist: hasOwn(input, "checklist")
+            ? (input.checklist ?? [])
+            : (current.checklist ?? []),
+          commentCount: hasOwn(input, "commentCount")
+            ? input.commentCount
+            : current.commentCount,
+          attachmentCount: hasOwn(input, "attachmentCount")
+            ? input.attachmentCount
+            : current.attachmentCount,
           version: current.version + 1,
           updatedAt: input.updatedAt
         };
@@ -154,6 +208,12 @@ class FakeRepository implements KanbanRepository {
 
         this.cards.set(moved.id, moved);
         return moved;
+      },
+      upsertCardSummary: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertAskBoardRequest: async () => {
+        // Not used in Kanban use-case tests.
       },
       appendOutbox: async (event) => {
         this.outbox.push(event);
@@ -291,5 +351,55 @@ test("core: move card enforces optimistic concurrency", async () => {
         { toListId: "list-2", position: 10, expectedVersion: 0 }
       ),
     ConflictError
+  );
+});
+
+test("core: update card enforces due date after start date", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "board-1",
+    orgId: "org-1",
+    title: "Roadmap",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+  repository.seedList({
+    id: "list-1",
+    orgId: "org-1",
+    boardId: "board-1",
+    title: "Todo",
+    position: 0,
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+  repository.seedCard({
+    id: "card-1",
+    orgId: "org-1",
+    boardId: "board-1",
+    listId: "list-1",
+    title: "Implement API",
+    description: "initial",
+    position: 0,
+    version: 1,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  await assert.rejects(
+    () =>
+      useCases.updateCard(
+        { userId: "u-1", orgId: "org-1", role: "editor" },
+        "card-1",
+        {
+          expectedVersion: 1,
+          startAt: "2026-02-14T10:00:00.000Z",
+          dueAt: "2026-02-13T10:00:00.000Z"
+        }
+      ),
+    ValidationError
   );
 });

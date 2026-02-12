@@ -307,21 +307,71 @@
         {
           id: "M3",
           title: "AI Summaries + Ask-the-Board",
-          status: "in-progress",
+          status: "completed",
           tasks: [
             { label: "Contracts for AI payloads + strict output schemas", done: true },
             { label: "Async API enqueue endpoints", done: true },
             { label: "Worker outbox poller scaffold (skip locked + retries)", done: true },
             { label: "RAG tables schema scaffold", done: true },
-            { label: "Gemini adapter execution", done: false },
-            { label: "Permission-aware retrieval", done: false },
-            { label: "Grounded answer persistence + references", done: false }
+            { label: "Gemini adapter execution", done: true },
+            { label: "Permission-aware retrieval", done: true },
+            { label: "Grounded answer persistence + references", done: true },
+            { label: "Embedding vector ranking upgrade", done: true },
+            { label: "Async result retrieval API paths", done: true },
+            { label: "Web/Discord polling integration", done: true }
           ],
           updates: [
             "2026-02-11: Added /cards/:cardId/summarize and /ai/ask-board enqueue endpoints.",
             "2026-02-11: Added ai.* outbox event contracts + core use-cases.",
             "2026-02-11: Added worker poller scaffold with FOR UPDATE SKIP LOCKED.",
-            "2026-02-11: Added migration scaffold 0003_m3_ai_rag_scaffold.sql."
+            "2026-02-11: Added migration scaffold 0003_m3_ai_rag_scaffold.sql.",
+            "2026-02-11: Worker now executes Gemini summary/ask jobs and persists grounded AI outputs with RLS-scoped retrieval.",
+            "2026-02-11: Added Gemini embedding generation + cosine similarity retrieval with lexical fallback.",
+            "2026-02-11: Added result status APIs for queued/completed AI jobs (`GET /cards/:cardId/summary`, `GET /ai/ask-board/:jobId`).",
+            "2026-02-11: Web UI and Discord commands now poll async AI status and display completed summary/answer outputs."
+          ]
+        },
+        {
+          id: "M7",
+          title: "Frontend UX Hardening for LLM Evaluation",
+          status: "completed",
+          tasks: [
+            { label: "Brutalist frontend plan documented", done: true },
+            { label: "Web board visual redesign (phase 0/1)", done: true },
+            { label: "Unified AI async status UX", done: true },
+            { label: "Desktop accessibility hardening", done: true },
+            { label: "Mobile interaction hardening deferred (post full app readiness)", done: true }
+          ],
+          updates: [
+            "2026-02-11: Added execution plan in docs/FRONTEND_BRUTALIST_PLAN.md.",
+            "2026-02-11: Implementation started in apps/web with brutalist UI foundation and layout overhaul.",
+            "2026-02-11: Prioritized as the current execution focus before M8/M4/M5/M6/M9.",
+            "2026-02-11: Delivered new signal-room shell, ask-job tracker, diagnostics drawer, and unified async status chips for ask-board + card summaries.",
+            "2026-02-11: Added desktop accessibility hardening: skip link, aria-live announcer, keyboard card actions, and aria-expanded toggle semantics.",
+            "2026-02-11: M7 finalized as desktop-first; mobile interaction tuning deferred by product priority."
+          ]
+        },
+        {
+          id: "M8",
+          title: "Card Enrichment (Trello-Style Details + Badges)",
+          status: "in-progress",
+          tasks: [
+            { label: "Kickoff after M7 completion", done: true },
+            { label: "Card details editing (description, assignees, dates, location, checklist, labels)", done: true },
+            { label: "Board card metadata badges (due/checklist/comments/attachments/assignees/labels)", done: true },
+            { label: "Contracts + core use-cases for enriched card fields", done: true },
+            { label: "Schema migration + RLS policy coverage for new fields/tables", done: true },
+            { label: "API + Discord adapter paths for enriched card mutations", done: true },
+            { label: "Domain/API/RLS coverage incl live Supabase migration verification", done: false }
+          ],
+          updates: [
+            "2026-02-11: Planned from Trello reference UX to support fully populated card details and glanceable card badges.",
+            "2026-02-11: Scheduled to execute immediately after M7.",
+            "2026-02-11: M8 execution started.",
+            "2026-02-11: Added card detail editor UI and board metadata badges in apps/web/public.",
+            "2026-02-11: Added contract/core/repository support + migration 0004_m8_card_enrichment.sql.",
+            "2026-02-11: Added Discord adapter mutation path for enriched updates (`/card edit` -> `/discord/commands/card-edit`).",
+            "2026-02-11: API Supabase e2e now skips until migration 0004 is applied in the target database."
           ]
         },
         {
@@ -332,6 +382,9 @@
             { label: "Thread fetch and extraction", done: false },
             { label: "Preview embed and action buttons", done: false },
             { label: "Create card/checklist assignment flow", done: false }
+          ],
+          updates: [
+            "2026-02-11: Sequenced after M7 and M8."
           ]
         },
         {
@@ -343,6 +396,9 @@
             { label: "Spec generation job", done: false },
             { label: "SVG/PNG rendering and storage", done: false },
             { label: "Web + Discord cover display", done: false }
+          ],
+          updates: [
+            "2026-02-11: Sequenced after M4."
           ]
         },
         {
@@ -353,6 +409,26 @@
             { label: "Stuck-card detection", done: false },
             { label: "Weekly recap generation", done: false },
             { label: "Optional standup output", done: false }
+          ],
+          updates: [
+            "2026-02-11: Sequenced after M5."
+          ]
+        },
+        {
+          id: "M9",
+          title: "Ask-AI Evaluation Granularity + Quality Gates",
+          status: "planned",
+          tasks: [
+            { label: "Curated fixture boards + deterministic question set", done: false },
+            { label: "Scenario matrix for enqueue/lifecycle/grounding/negative cases", done: false },
+            { label: "Permission-boundary (RLS leakage) evaluation suite", done: false },
+            { label: "Fallback + retry-idempotency checks", done: false },
+            { label: "Web/Discord async UX gate checks (queued/failed/completed)", done: false },
+            { label: "Run-report output with gate-level pass/fail summary", done: false }
+          ],
+          updates: [
+            "2026-02-11: Added granular ask-AI test milestone and linked plan in docs/ASK_AI_EVAL_PLAN.md.",
+            "2026-02-11: Sequenced as the final milestone after M4/M5/M6 completion."
           ]
         }
       ];

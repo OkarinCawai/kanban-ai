@@ -35,6 +35,12 @@ type DiscordInteraction = {
   };
 };
 
+type CommandDescriptor = {
+  name: string;
+  subcommand?: string;
+  options?: any[];
+};
+
 const requireEnv = (key: string): string => {
   const value = process.env[key]?.trim();
   if (!value) {
@@ -139,6 +145,138 @@ const getStringOption = (options: any[] | undefined, key: string): string | null
   const value = match?.value;
   return typeof value === "string" ? value : null;
 };
+
+const getIntegerOption = (options: any[] | undefined, key: string): number | null => {
+  if (!options) return null;
+  const match = options.find((opt) => opt?.type === 4 && opt?.name === key);
+  const value = match?.value;
+  return Number.isInteger(value) ? Number(value) : null;
+};
+
+const LABEL_COLORS = new Set([
+  "gray",
+  "green",
+  "yellow",
+  "orange",
+  "red",
+  "purple",
+  "blue",
+  "teal"
+]);
+
+const parseNullableStringOption = (value: string | null): string | null | undefined => {
+  if (value === null) {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.toLowerCase() === "clear") {
+    return null;
+  }
+  return normalized;
+};
+
+const parseNullableDateOption = (value: string | null): string | null | undefined => {
+  const normalized = parseNullableStringOption(value);
+  if (normalized === undefined || normalized === null) {
+    return normalized;
+  }
+
+  const dateValue = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? new Date(`${normalized}T00:00:00.000Z`)
+    : new Date(normalized);
+
+  if (Number.isNaN(dateValue.valueOf())) {
+    throw new Error(`Invalid date value: ${normalized}`);
+  }
+  return dateValue.toISOString();
+};
+
+const parseCsv = (value: string | null): string[] | undefined => {
+  const normalized = parseNullableStringOption(value);
+  if (normalized === undefined || normalized === null) {
+    return undefined;
+  }
+
+  const parts = normalized
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return parts.length > 0 ? parts : undefined;
+};
+
+const parseLabelsOption = (
+  value: string | null
+): Array<{ name: string; color: string }> | undefined => {
+  const entries = parseCsv(value);
+  if (!entries) {
+    return undefined;
+  }
+
+  const labels = entries.map((entry) => {
+    const [namePart, colorPart] = entry.split(":");
+    const name = namePart?.trim();
+    const color = colorPart?.trim().toLowerCase();
+
+    if (!name || !color || !LABEL_COLORS.has(color)) {
+      throw new Error(
+        `Invalid label "${entry}". Use name:color with color in ${Array.from(LABEL_COLORS).join(", ")}`
+      );
+    }
+
+    return {
+      name,
+      color
+    };
+  });
+
+  return labels.length > 0 ? labels : undefined;
+};
+
+const parseChecklistOption = (
+  value: string | null
+): Array<{ title: string; isDone: boolean; position: number }> | undefined => {
+  const entries = parseCsv(value);
+  if (!entries) {
+    return undefined;
+  }
+
+  const items = entries
+    .map((entry, index) => {
+      const normalized = entry.trim();
+      if (!normalized) {
+        return null;
+      }
+
+      let isDone = false;
+      let title = normalized;
+      if (normalized.startsWith("x:") || normalized.startsWith("[x]")) {
+        isDone = true;
+        title = normalized.replace(/^x:\s*/i, "").replace(/^\[x\]\s*/i, "");
+      }
+
+      return {
+        title: title.trim(),
+        isDone,
+        position: index * 1024
+      };
+    })
+    .filter(
+      (item): item is { title: string; isDone: boolean; position: number } =>
+        Boolean(item && item.title)
+    );
+
+  return items.length > 0 ? items : undefined;
+};
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+const truncate = (value: string, max = 1800): string =>
+  value.length <= max ? value : `${value.slice(0, max - 3)}...`;
 
 @Injectable()
 export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
@@ -269,6 +407,118 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
                 name: "to_list_id",
                 description: "Target list UUID",
                 required: true
+              }
+            ]
+          },
+          {
+            type: 1,
+            name: "edit",
+            description: "Edit enriched card fields by UUID",
+            options: [
+              {
+                type: 3,
+                name: "card_id",
+                description: "Card UUID",
+                required: true
+              },
+              {
+                type: 3,
+                name: "title",
+                description: "Card title (or omit)",
+                required: false
+              },
+              {
+                type: 3,
+                name: "description",
+                description: 'Description text. Use "clear" to reset.',
+                required: false
+              },
+              {
+                type: 3,
+                name: "start_at",
+                description: 'Start date ISO or YYYY-MM-DD. Use "clear" to reset.',
+                required: false
+              },
+              {
+                type: 3,
+                name: "due_at",
+                description: 'Due date ISO or YYYY-MM-DD. Use "clear" to reset.',
+                required: false
+              },
+              {
+                type: 3,
+                name: "location_text",
+                description: 'Location text. Use "clear" to reset.',
+                required: false
+              },
+              {
+                type: 3,
+                name: "location_url",
+                description: 'Location URL. Use "clear" to reset.',
+                required: false
+              },
+              {
+                type: 3,
+                name: "assignees",
+                description: "Comma-separated assignee UUIDs.",
+                required: false
+              },
+              {
+                type: 3,
+                name: "labels",
+                description: "Comma list name:color (color in gray/green/yellow/orange/red/purple/blue/teal).",
+                required: false
+              },
+              {
+                type: 3,
+                name: "checklist",
+                description: "Comma list items. Prefix x: or [x] to mark done.",
+                required: false
+              }
+            ]
+          },
+          {
+            type: 1,
+            name: "summarize",
+            description: "Generate AI summary for a card by UUID",
+            options: [
+              {
+                type: 3,
+                name: "card_id",
+                description: "Card UUID",
+                required: true
+              },
+              {
+                type: 3,
+                name: "reason",
+                description: "Optional summary focus",
+                required: false
+              }
+            ]
+          }
+        ]
+      },
+      {
+        name: "ai",
+        description: "AI commands",
+        type: 1,
+        options: [
+          {
+            type: 1,
+            name: "ask",
+            description: "Ask the mapped board a question",
+            options: [
+              {
+                type: 3,
+                name: "question",
+                description: "Question to ask",
+                required: true
+              },
+              {
+                type: 4,
+                name: "top_k",
+                description: "Max reference chunks (1-20)",
+                required: false
               }
             ]
           }
@@ -477,7 +727,7 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
     discordUserId: string;
     guildId: string;
     channelId: string;
-    command: { name: string; subcommand?: string; options?: any[] };
+    command: CommandDescriptor;
   }): Promise<void> {
     const { config, interaction, discordUserId, guildId, channelId, command } = args;
 
@@ -572,6 +822,212 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      if (command.name === "card" && command.subcommand === "edit") {
+        const cardId = getStringOption(command.options, "card_id");
+        if (!cardId) {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            "Missing required option: card_id"
+          );
+          return;
+        }
+
+        const title = parseNullableStringOption(getStringOption(command.options, "title"));
+        const description = parseNullableStringOption(
+          getStringOption(command.options, "description")
+        );
+        const startAt = parseNullableDateOption(getStringOption(command.options, "start_at"));
+        const dueAt = parseNullableDateOption(getStringOption(command.options, "due_at"));
+        const locationText = parseNullableStringOption(
+          getStringOption(command.options, "location_text")
+        );
+        const locationUrl = parseNullableStringOption(
+          getStringOption(command.options, "location_url")
+        );
+        const assigneeUserIds = parseCsv(getStringOption(command.options, "assignees"));
+        const labels = parseLabelsOption(getStringOption(command.options, "labels"));
+        const checklist = parseChecklistOption(getStringOption(command.options, "checklist"));
+
+        const payload: Record<string, unknown> = {
+          guildId,
+          channelId,
+          cardId
+        };
+
+        if (title !== undefined && title !== null) {
+          payload.title = title;
+        }
+        if (description !== undefined) {
+          payload.description = description;
+        }
+        if (startAt !== undefined) {
+          payload.startAt = startAt;
+        }
+        if (dueAt !== undefined) {
+          payload.dueAt = dueAt;
+        }
+        if (locationText !== undefined) {
+          payload.locationText = locationText;
+        }
+        if (locationUrl !== undefined) {
+          payload.locationUrl = locationUrl;
+        }
+        if (assigneeUserIds !== undefined) {
+          payload.assigneeUserIds = assigneeUserIds;
+        }
+        if (labels !== undefined) {
+          payload.labels = labels;
+        }
+        if (checklist !== undefined) {
+          payload.checklist = checklist;
+        }
+
+        const result = await this.callApi(config, discordUserId, "/discord/commands/card-edit", payload);
+        const updated = result.card;
+
+        const summaryLines = [
+          `Updated card \`${updated.id}\`: ${updated.title}`,
+          `list: \`${updated.listId}\` | version: ${updated.version}`,
+          `due: ${updated.dueAt ?? "none"} | start: ${updated.startAt ?? "none"}`,
+          `assignees: ${(updated.assigneeUserIds ?? []).length} | labels: ${(updated.labels ?? []).length}`,
+          `checklist: ${(updated.checklist ?? []).filter((item: any) => item.isDone).length}/${(updated.checklist ?? []).length}`,
+          `comments: ${updated.commentCount ?? 0} | attachments: ${updated.attachmentCount ?? 0}`
+        ];
+
+        await this.editOriginalResponse(config, interaction, summaryLines.join("\n"));
+        return;
+      }
+
+      if (command.name === "card" && command.subcommand === "summarize") {
+        const cardId = getStringOption(command.options, "card_id");
+        const reason = getStringOption(command.options, "reason") ?? undefined;
+
+        if (!cardId) {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            "Missing required option: card_id"
+          );
+          return;
+        }
+
+        const queued = await this.callApi(
+          config,
+          discordUserId,
+          "/discord/commands/card-summarize",
+          {
+            guildId,
+            channelId,
+            cardId,
+            reason
+          }
+        );
+
+        const status = await this.pollCardSummaryStatus({
+          config,
+          discordUserId,
+          guildId,
+          channelId,
+          cardId
+        });
+
+        if (status?.status === "completed" && status.summary) {
+          const content = [
+            `Card \`${cardId}\` summary`,
+            "",
+            `**Summary**`,
+            status.summary.summary,
+            "",
+            status.summary.highlights.length
+              ? `**Highlights**\n${status.summary.highlights.map((item: string) => `- ${item}`).join("\n")}`
+              : "",
+            status.summary.risks.length
+              ? `**Risks**\n${status.summary.risks.map((item: string) => `- ${item}`).join("\n")}`
+              : "",
+            status.summary.actionItems.length
+              ? `**Action Items**\n${status.summary.actionItems.map((item: string) => `- ${item}`).join("\n")}`
+              : ""
+          ]
+            .filter(Boolean)
+            .join("\n");
+          await this.editOriginalResponse(config, interaction, truncate(content, 1900));
+          return;
+        }
+
+        await this.editOriginalResponse(
+          config,
+          interaction,
+          `Summary job queued (\`${queued.jobId}\`). Still processing; run the command again in a moment.`
+        );
+        return;
+      }
+
+      if (command.name === "ai" && command.subcommand === "ask") {
+        const question = getStringOption(command.options, "question");
+        const topK = getIntegerOption(command.options, "top_k") ?? undefined;
+
+        if (!question) {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            "Missing required option: question"
+          );
+          return;
+        }
+
+        const queued = await this.callApi(
+          config,
+          discordUserId,
+          "/discord/commands/ask-board",
+          {
+            guildId,
+            channelId,
+            question,
+            topK
+          }
+        );
+
+        const status = await this.pollAskBoardStatus({
+          config,
+          discordUserId,
+          guildId,
+          channelId,
+          jobId: queued.jobId
+        });
+
+        if (status?.status === "completed" && status.answer) {
+          const references = status.answer.references
+            .slice(0, 5)
+            .map(
+              (reference: any, index: number) =>
+                `${index + 1}. [${reference.sourceType}] ${truncate(reference.excerpt, 120)}`
+            )
+            .join("\n");
+
+          const content = [
+            `Question: ${question}`,
+            "",
+            `**Answer**`,
+            status.answer.answer,
+            "",
+            references ? `**References**\n${references}` : ""
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          await this.editOriginalResponse(config, interaction, truncate(content, 1900));
+          return;
+        }
+
+        await this.editOriginalResponse(
+          config,
+          interaction,
+          `Ask-board job queued (\`${queued.jobId}\`). Still processing; run the command again shortly.`
+        );
+        return;
+      }
+
       await this.editOriginalResponse(config, interaction, "Unknown command.");
     } catch (error) {
       await this.editOriginalResponse(
@@ -617,5 +1073,65 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
     }
 
     return json;
+  }
+
+  private async pollCardSummaryStatus(args: {
+    config: DiscordConfig;
+    discordUserId: string;
+    guildId: string;
+    channelId: string;
+    cardId: string;
+  }): Promise<any | null> {
+    let latest: any | null = null;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      latest = await this.callApi(
+        args.config,
+        args.discordUserId,
+        "/discord/commands/card-summary-status",
+        {
+          guildId: args.guildId,
+          channelId: args.channelId,
+          cardId: args.cardId
+        }
+      );
+
+      if (latest?.status === "completed" || latest?.status === "failed") {
+        return latest;
+      }
+
+      await sleep(1500);
+    }
+
+    return latest;
+  }
+
+  private async pollAskBoardStatus(args: {
+    config: DiscordConfig;
+    discordUserId: string;
+    guildId: string;
+    channelId: string;
+    jobId: string;
+  }): Promise<any | null> {
+    let latest: any | null = null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      latest = await this.callApi(
+        args.config,
+        args.discordUserId,
+        "/discord/commands/ask-board-status",
+        {
+          guildId: args.guildId,
+          channelId: args.channelId,
+          jobId: args.jobId
+        }
+      );
+
+      if (latest?.status === "completed" || latest?.status === "failed") {
+        return latest;
+      }
+
+      await sleep(1500);
+    }
+
+    return latest;
   }
 }

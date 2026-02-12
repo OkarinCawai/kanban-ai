@@ -105,8 +105,10 @@ Org/Board/List/Card:
 
 AI:
 - `POST /ai/ask-board`
+- `GET /ai/ask-board/:jobId`
 - `POST /ai/extract-tasks`
 - `POST /ai/summarize-list`
+- `GET /cards/:cardId/summary`
 
 Discord integration:
 - Guild mapping and retrieval endpoints
@@ -189,6 +191,7 @@ Required MVP commands:
 - `/card create`
 - `/card move`
 - `/card summarize`
+- `/ai ask`
 - Thread -> card action
 
 ## 14) Observability and Quality Gates

@@ -2,6 +2,7 @@ import { loadRuntimeSecrets } from "@kanban/utils";
 import { Module } from "@nestjs/common";
 import { Pool } from "pg";
 
+import { AiModule } from "../ai/ai.module.js";
 import { KanbanModule } from "../kanban/kanban.module.js";
 import { DiscordController } from "./discord.controller.js";
 import { DiscordMappingController } from "./discord-mapping.controller.js";
@@ -30,7 +31,7 @@ const poolProvider = {
 };
 
 @Module({
-  imports: [KanbanModule],
+  imports: [KanbanModule, AiModule],
   controllers: [DiscordController, DiscordMappingController],
   providers: [DiscordCommandService, poolProvider]
 })

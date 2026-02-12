@@ -1,0 +1,44 @@
+﻿{
+    "Root":  "E:\\Codex\\Trello",
+    "StartedAt":  "2026-02-12T17:11:43.5270099+01:00",
+    "Services":  [
+                     {
+                         "Name":  "api",
+                         "Entry":  "apps/api/dist/src/main.js",
+                         "Port":  3001,
+                         "Pid":  30124,
+                         "Out":  "dev_api_out.log",
+                         "Err":  "dev_api_err.log"
+                     },
+                     {
+                         "Name":  "web",
+                         "Entry":  "apps/web/dist/src/dev-server.js",
+                         "Port":  3002,
+                         "Pid":  29312,
+                         "Out":  "dev_web_out.log",
+                         "Err":  "dev_web_err.log"
+                     },
+                     {
+                         "Name":  "discord",
+                         "Entry":  "apps/discord/dist/src/main.js",
+                         "Port":  3003,
+                         "Pid":  16956,
+                         "Out":  "dev_discord_out.log",
+                         "Err":  "dev_discord_err.log"
+                     },
+                     {
+                         "Name":  "worker",
+                         "Entry":  "apps/worker/dist/src/main.js",
+                         "Port":  3004,
+                         "Pid":  14484,
+                         "Out":  "dev_worker_out.log",
+                         "Err":  "dev_worker_err.log"
+                     }
+                 ],
+    "Tunnel":  {
+                   "Pid":  3816,
+                   "Out":  "dev_tunnel_out.log",
+                   "Err":  "dev_tunnel_err.log",
+                   "PublicUrl":  "https://decided-butler-sheet-tag.trycloudflare.com"
+               }
+}
