@@ -3,11 +3,13 @@ import {
   cardChecklistItemSchema,
   cardLabelSchema,
   cardSummaryResultSchema,
+  threadToCardResultSchema,
   type AskBoardResult,
   type Board,
   type Card,
   type CardSummaryResult,
-  type KanbanList
+  type KanbanList,
+  type ThreadToCardResult
 } from "@kanban/contracts";
 import {
   ConflictError,
@@ -76,6 +78,25 @@ type DbAskBoardResult = {
   top_k: number;
   status: string;
   answer_json: unknown;
+  updated_at: string | Date;
+};
+
+type DbThreadToCardResult = {
+  id: string;
+  board_id: string;
+  list_id: string;
+  requester_user_id: string;
+  source_guild_id: string;
+  source_channel_id: string;
+  source_thread_id: string;
+  source_thread_name: string;
+  participant_discord_user_ids: string[] | null;
+  transcript_text: string;
+  status: string;
+  draft_json: unknown;
+  created_card_id: string | null;
+  source_event_id: string | null;
+  failure_reason: string | null;
   updated_at: string | Date;
 };
 
@@ -189,6 +210,26 @@ const mapAskBoardResult = (row: DbAskBoardResult): AskBoardResult =>
     updatedAt: toIso(row.updated_at)
   });
 
+const mapThreadToCardResult = (row: DbThreadToCardResult): ThreadToCardResult =>
+  threadToCardResultSchema.parse({
+    jobId: row.id,
+    boardId: row.board_id,
+    listId: row.list_id,
+    requesterUserId: row.requester_user_id,
+    sourceGuildId: row.source_guild_id,
+    sourceChannelId: row.source_channel_id,
+    sourceThreadId: row.source_thread_id,
+    sourceThreadName: row.source_thread_name,
+    participantDiscordUserIds: row.participant_discord_user_ids ?? [],
+    transcript: row.transcript_text,
+    status: row.status,
+    draft: row.draft_json ?? undefined,
+    createdCardId: row.created_card_id ?? undefined,
+    sourceEventId: row.source_event_id ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
 export class PostgresKanbanRepository implements KanbanRepository {
   constructor(
     private readonly pool: Pool,
@@ -276,6 +317,38 @@ export class PostgresKanbanRepository implements KanbanRepository {
       );
 
       return result.rows[0] ? mapAskBoardResult(result.rows[0]) : null;
+    });
+  }
+
+  async findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbThreadToCardResult>(
+        `
+          select
+            id,
+            board_id,
+            list_id,
+            requester_user_id,
+            source_guild_id,
+            source_channel_id,
+            source_thread_id,
+            source_thread_name,
+            participant_discord_user_ids,
+            transcript_text,
+            status,
+            draft_json,
+            created_card_id,
+            source_event_id,
+            failure_reason,
+            updated_at
+          from public.thread_card_extractions
+          where id = $1::uuid
+          limit 1
+        `,
+        [jobId]
+      );
+
+      return result.rows[0] ? mapThreadToCardResult(result.rows[0]) : null;
     });
   }
 
@@ -564,6 +637,88 @@ export class PostgresKanbanRepository implements KanbanRepository {
               input.status,
               input.answerJson ? JSON.stringify(input.answerJson) : null,
               input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertThreadCardExtraction: async (input) => {
+          await client.query(
+            `
+              insert into public.thread_card_extractions (
+                id,
+                org_id,
+                board_id,
+                list_id,
+                requester_user_id,
+                source_guild_id,
+                source_channel_id,
+                source_thread_id,
+                source_thread_name,
+                participant_discord_user_ids,
+                transcript_text,
+                status,
+                draft_json,
+                created_card_id,
+                source_event_id,
+                failure_reason,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                $5::uuid,
+                $6,
+                $7,
+                $8,
+                $9,
+                $10::text[],
+                $11,
+                $12,
+                $13::jsonb,
+                $14::uuid,
+                $15::uuid,
+                $16,
+                now(),
+                $17::timestamptz
+              )
+              on conflict (id) do update
+              set
+                board_id = excluded.board_id,
+                list_id = excluded.list_id,
+                requester_user_id = excluded.requester_user_id,
+                source_guild_id = excluded.source_guild_id,
+                source_channel_id = excluded.source_channel_id,
+                source_thread_id = excluded.source_thread_id,
+                source_thread_name = excluded.source_thread_name,
+                participant_discord_user_ids = excluded.participant_discord_user_ids,
+                transcript_text = excluded.transcript_text,
+                status = excluded.status,
+                draft_json = excluded.draft_json,
+                created_card_id = excluded.created_card_id,
+                source_event_id = excluded.source_event_id,
+                failure_reason = excluded.failure_reason,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.id,
+              input.orgId,
+              input.boardId,
+              input.listId,
+              input.requesterUserId,
+              input.sourceGuildId,
+              input.sourceChannelId,
+              input.sourceThreadId,
+              input.sourceThreadName,
+              input.participantDiscordUserIds ?? [],
+              input.transcript,
+              input.status,
+              input.draftJson ? JSON.stringify(input.draftJson) : null,
+              input.createdCardId ?? null,
+              input.sourceEventId ?? null,
+              input.failureReason ?? null,
               input.updatedAt
             ]
           );

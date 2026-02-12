@@ -31,6 +31,8 @@ type DiscordInteraction = {
   user?: { id: string };
   data?: {
     name?: string;
+    custom_id?: string;
+    component_type?: number;
     options?: Array<any>;
   };
 };
@@ -278,6 +280,11 @@ const sleep = (ms: number): Promise<void> =>
 const truncate = (value: string, max = 1800): string =>
   value.length <= max ? value : `${value.slice(0, max - 3)}...`;
 
+const THREAD_CHANNEL_TYPES = new Set([11, 12]);
+
+const clampInt = (value: number, min: number, max: number): number =>
+  Math.min(max, Math.max(min, Math.floor(value)));
+
 @Injectable()
 export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
   private server: http.Server | null = null;
@@ -523,6 +530,26 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
             ]
           }
         ]
+      },
+      {
+        name: "thread",
+        description: "Thread commands",
+        type: 1,
+        options: [
+          {
+            type: 1,
+            name: "to-card",
+            description: "Extract current thread and preview card creation",
+            options: [
+              {
+                type: 4,
+                name: "message_limit",
+                description: "How many recent messages to ingest (5-100)",
+                required: false
+              }
+            ]
+          }
+        ]
       }
     ];
 
@@ -631,10 +658,46 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
-        const command = getCommand(interaction);
         const userId = getInteractionUserId(interaction);
         const guildId = interaction.guild_id;
         const channelId = interaction.channel_id;
+
+        if (interaction.type === 3) {
+          const customId = interaction.data?.custom_id ?? "";
+          if (!userId || !guildId || !channelId) {
+            json(res, 200, {
+              type: 4,
+              data: {
+                content: "This action must be used in a server channel.",
+                flags: 64
+              }
+            });
+            return;
+          }
+
+          if (!customId.startsWith("thread_to_card_confirm:")) {
+            json(res, 200, {
+              type: 4,
+              data: {
+                content: "Unsupported action.",
+                flags: 64
+              }
+            });
+            return;
+          }
+
+          json(res, 200, { type: 6 });
+          void this.handleThreadConfirmAsync({
+            config,
+            interaction,
+            discordUserId: userId,
+            guildId,
+            customId
+          });
+          return;
+        }
+
+        const command = getCommand(interaction);
 
         if (!command || !userId || !guildId || !channelId) {
           process.stdout.write(
@@ -1028,6 +1091,107 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      if (command.name === "thread" && command.subcommand === "to-card") {
+        const limitOption = getIntegerOption(command.options, "message_limit");
+        const messageLimit = clampInt(limitOption ?? 40, 5, 100);
+
+        const threadContext = await this.fetchThreadContext(config, channelId);
+        if (!threadContext.isThread) {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            "Use `/thread to-card` inside a Discord thread channel."
+          );
+          return;
+        }
+
+        const transcriptPayload = await this.fetchThreadTranscript(
+          config,
+          threadContext.threadId,
+          messageLimit
+        );
+        const mappingChannelId = threadContext.parentChannelId ?? channelId;
+
+        const queued = await this.callApi(
+          config,
+          discordUserId,
+          "/discord/commands/thread-to-card",
+          {
+            guildId,
+            channelId: mappingChannelId,
+            threadId: threadContext.threadId,
+            threadName: threadContext.threadName,
+            transcript: transcriptPayload.transcript,
+            participantDiscordUserIds: transcriptPayload.participantDiscordUserIds
+          }
+        );
+
+        const status = await this.pollThreadToCardStatus({
+          config,
+          discordUserId,
+          guildId,
+          channelId: mappingChannelId,
+          jobId: queued.jobId
+        });
+
+        if (status?.status === "completed" && status.draft) {
+          const checklist = status.draft.checklist ?? [];
+          const labels = status.draft.labels ?? [];
+          const assignees = status.draft.assigneeUserIds ?? [];
+
+          const preview = [
+            `Thread extracted: **${threadContext.threadName}**`,
+            `Job: \`${queued.jobId}\``,
+            "",
+            `**Proposed title**`,
+            status.draft.title,
+            "",
+            status.draft.description ? `**Description**\n${truncate(status.draft.description, 800)}` : "",
+            checklist.length
+              ? `**Checklist**\n${checklist
+                  .slice(0, 8)
+                  .map((item: any, index: number) => `${index + 1}. ${item.title}`)
+                  .join("\n")}`
+              : "",
+            `labels: ${labels.length} | assignees: ${assignees.length}`
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          const customId = `thread_to_card_confirm:${queued.jobId}:${mappingChannelId}`;
+          await this.editOriginalResponse(config, interaction, truncate(preview, 1800), [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 3,
+                  custom_id: customId,
+                  label: "Create card"
+                }
+              ]
+            }
+          ]);
+          return;
+        }
+
+        if (status?.status === "failed") {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            `Thread extraction failed: ${status.failureReason ?? "unknown error"}`
+          );
+          return;
+        }
+
+        await this.editOriginalResponse(
+          config,
+          interaction,
+          `Thread extraction queued (\`${queued.jobId}\`). Still processing; run \`/thread to-card\` again shortly.`
+        );
+        return;
+      }
+
       await this.editOriginalResponse(config, interaction, "Unknown command.");
     } catch (error) {
       await this.editOriginalResponse(
@@ -1038,16 +1202,69 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async handleThreadConfirmAsync(args: {
+    config: DiscordConfig;
+    interaction: DiscordInteraction;
+    discordUserId: string;
+    guildId: string;
+    customId: string;
+  }): Promise<void> {
+    const { config, interaction, discordUserId, guildId, customId } = args;
+    const [prefix, jobId, mappingChannelId] = customId.split(":");
+
+    if (prefix !== "thread_to_card_confirm" || !jobId || !mappingChannelId) {
+      await this.editOriginalResponse(config, interaction, "Invalid confirm action.", []);
+      return;
+    }
+
+    try {
+      const result = await this.callApi(
+        config,
+        discordUserId,
+        "/discord/commands/thread-to-card-confirm",
+        {
+          guildId,
+          channelId: mappingChannelId,
+          jobId
+        }
+      );
+
+      await this.editOriginalResponse(
+        config,
+        interaction,
+        result.created
+          ? `Created card \`${result.card.id}\` in list \`${result.card.listId}\`: ${result.card.title}`
+          : `Card already created for this thread: \`${result.card.id}\` (${result.card.title})`,
+        []
+      );
+    } catch (error) {
+      await this.editOriginalResponse(
+        config,
+        interaction,
+        `Thread confirm failed: ${error instanceof Error ? error.message : String(error)}`,
+        []
+      );
+    }
+  }
+
   private async editOriginalResponse(
     config: DiscordConfig,
     interaction: DiscordInteraction,
-    content: string
+    content: string,
+    components?: unknown[]
   ): Promise<void> {
     const url = `https://discord.com/api/v10/webhooks/${config.applicationId}/${interaction.token}/messages/@original`;
+    const payload: Record<string, unknown> = {
+      content: content.slice(0, 2000)
+    };
+    if (components !== undefined) {
+      payload.components = components;
+    }
+
     await fetch(url, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ content: content.slice(0, 2000) })
+      body: JSON.stringify(payload)
     });
   }
 
@@ -1073,6 +1290,126 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
     }
 
     return json;
+  }
+
+  private async callDiscordApi(
+    config: DiscordConfig,
+    path: string
+  ): Promise<any> {
+    if (!config.botToken) {
+      throw new Error("DISCORD_BOT_TOKEN is required for thread ingestion.");
+    }
+
+    const response = await fetch(`https://discord.com/api/v10${path}`, {
+      method: "GET",
+      headers: {
+        authorization: `Bot ${config.botToken}`,
+        "content-type": "application/json"
+      }
+    });
+
+    const json = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(
+        `Discord API error (${response.status}): ${json.message ?? JSON.stringify(json)}`
+      );
+    }
+
+    return json;
+  }
+
+  private async fetchThreadContext(
+    config: DiscordConfig,
+    channelId: string
+  ): Promise<{
+    isThread: boolean;
+    threadId: string;
+    threadName: string;
+    parentChannelId: string | null;
+  }> {
+    const channel = await this.callDiscordApi(config, `/channels/${channelId}`);
+    const type = Number(channel?.type ?? -1);
+    return {
+      isThread: THREAD_CHANNEL_TYPES.has(type),
+      threadId: String(channel?.id ?? channelId),
+      threadName: String(channel?.name ?? "Untitled thread"),
+      parentChannelId:
+        typeof channel?.parent_id === "string" && channel.parent_id.trim().length > 0
+          ? channel.parent_id
+          : null
+    };
+  }
+
+  private async fetchThreadTranscript(
+    config: DiscordConfig,
+    threadId: string,
+    messageLimit: number
+  ): Promise<{
+    transcript: string;
+    participantDiscordUserIds: string[];
+  }> {
+    const messages = await this.callDiscordApi(
+      config,
+      `/channels/${threadId}/messages?limit=${messageLimit}`
+    );
+
+    if (!Array.isArray(messages)) {
+      throw new Error("Thread message fetch returned an unexpected payload.");
+    }
+
+    const participantIds = new Set<string>();
+    const ordered = [...messages].reverse();
+    const lines: string[] = [];
+
+    for (const message of ordered) {
+      const authorId =
+        typeof message?.author?.id === "string" ? message.author.id : "unknown";
+      const authorName =
+        typeof message?.author?.username === "string"
+          ? message.author.username
+          : "unknown";
+      participantIds.add(authorId);
+
+      const mentions = Array.isArray(message?.mentions) ? message.mentions : [];
+      for (const mention of mentions) {
+        if (typeof mention?.id === "string" && mention.id.trim().length > 0) {
+          participantIds.add(mention.id);
+        }
+      }
+
+      const timestamp =
+        typeof message?.timestamp === "string"
+          ? new Date(message.timestamp).toISOString()
+          : new Date().toISOString();
+
+      const text = typeof message?.content === "string" ? message.content.trim() : "";
+      const attachmentSummary = Array.isArray(message?.attachments)
+        ? message.attachments
+            .map((attachment: any) =>
+              typeof attachment?.filename === "string"
+                ? `attachment:${attachment.filename}`
+                : null
+            )
+            .filter((entry: string | null): entry is string => Boolean(entry))
+            .join(", ")
+        : "";
+
+      const normalized = [text, attachmentSummary].filter(Boolean).join(" | ");
+      if (!normalized) {
+        continue;
+      }
+
+      lines.push(`[${timestamp}] ${authorName} (${authorId}): ${normalized}`);
+    }
+
+    if (lines.length === 0) {
+      throw new Error("Thread has no readable message content to extract.");
+    }
+
+    return {
+      transcript: truncate(lines.join("\n"), 39_000),
+      participantDiscordUserIds: Array.from(participantIds)
+    };
   }
 
   private async pollCardSummaryStatus(args: {
@@ -1118,6 +1455,36 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
         args.config,
         args.discordUserId,
         "/discord/commands/ask-board-status",
+        {
+          guildId: args.guildId,
+          channelId: args.channelId,
+          jobId: args.jobId
+        }
+      );
+
+      if (latest?.status === "completed" || latest?.status === "failed") {
+        return latest;
+      }
+
+      await sleep(1500);
+    }
+
+    return latest;
+  }
+
+  private async pollThreadToCardStatus(args: {
+    config: DiscordConfig;
+    discordUserId: string;
+    guildId: string;
+    channelId: string;
+    jobId: string;
+  }): Promise<any | null> {
+    let latest: any | null = null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      latest = await this.callApi(
+        args.config,
+        args.discordUserId,
+        "/discord/commands/thread-to-card-status",
         {
           guildId: args.guildId,
           channelId: args.channelId,

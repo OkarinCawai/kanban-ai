@@ -58,6 +58,10 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findThreadToCardResultByJobId(_jobId: string): Promise<null> {
+    return null;
+  }
+
   async listListsByBoardId(boardId: string): Promise<KanbanList[]> {
     return Array.from(this.lists.values())
       .filter((list) => list.boardId === boardId)
@@ -213,6 +217,9 @@ class FakeRepository implements KanbanRepository {
         // Not used in Kanban use-case tests.
       },
       upsertAskBoardRequest: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertThreadCardExtraction: async () => {
         // Not used in Kanban use-case tests.
       },
       appendOutbox: async (event) => {

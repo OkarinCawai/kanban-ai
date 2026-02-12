@@ -62,3 +62,25 @@ Changes:
 Operational notes:
 - No new tables or policies are introduced; existing `cards` RLS policies continue to enforce access control on enriched fields.
 - Included in root migration chain via `npm run db:migrate:m4`.
+
+## 0005_m4_thread_to_card.sql (2026-02-12)
+
+Path: `infra/db/migrations/0005_m4_thread_to_card.sql`
+
+Changes:
+- Adds `public.thread_card_extractions` for async thread-ingestion lifecycle state and idempotent confirmation:
+  - source metadata (`source_guild_id`, `source_channel_id`, `source_thread_id`, `source_thread_name`)
+  - payload fields (`participant_discord_user_ids`, `transcript_text`)
+  - processing/confirmation fields (`status`, `draft_json`, `created_card_id`, `failure_reason`, `source_event_id`)
+- Adds status constraint `thread_card_extractions_status_check`.
+- Adds lifecycle indexes:
+  - `idx_thread_card_extractions_org_board`
+  - `idx_thread_card_extractions_status`
+- Enables + forces RLS and adds policies:
+  - `thread_card_extractions_select_policy`
+  - `thread_card_extractions_insert_policy` (`editor`/`admin` only + `requester_user_id = current_user_id()`)
+  - `thread_card_extractions_update_policy`
+
+Operational notes:
+- Included in root migration chain via `npm run db:migrate:m5`.
+- Supports M4 thread extraction queueing (`ai.thread-to-card.requested`) and duplicate-safe confirm flow (`created_card_id`).

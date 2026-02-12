@@ -76,6 +76,34 @@ export class AiService {
     );
   }
 
+  async queueThreadToCard(
+    context: RequestContext,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueThreadToCard(context, payload))
+    );
+  }
+
+  async getThreadToCardResult(
+    context: RequestContext,
+    jobId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getThreadToCardResult(context, jobId))
+    );
+  }
+
+  async confirmThreadToCard(
+    context: RequestContext,
+    jobId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.confirmThreadToCard(context, jobId, payload))
+    );
+  }
+
   private async execute<T>(operation: () => Promise<T>): Promise<T> {
     try {
       return await operation();

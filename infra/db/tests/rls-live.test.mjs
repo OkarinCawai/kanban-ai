@@ -45,6 +45,7 @@ test(
     const userOther = "e2da2f46-39cf-4f97-a1a8-fe7e602f3d65";
     const boardA = "722ad3ba-6c19-4fa1-841c-e68dd0d72f84";
     const boardB = "a15a1aba-a8b5-4e8b-8f73-674d988bce44";
+    const listA = "d2d694ed-fb78-4f30-a918-2dd933644af8";
 
     await client.connect();
 
@@ -76,6 +77,14 @@ test(
           on conflict (id) do update set title = excluded.title
         `,
         [boardA, boardB, orgA, orgB]
+      );
+      await client.query(
+        `
+          insert into public.lists (id, org_id, board_id, title, position)
+          values ($1::uuid, $2::uuid, $3::uuid, 'Todo', 1024)
+          on conflict (id) do update set title = excluded.title
+        `,
+        [listA, orgA, boardA]
       );
       await client.query("commit");
 
@@ -161,6 +170,85 @@ test(
           )
       );
       assert.equal(outboxInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.thread_card_extractions (
+                    id,
+                    org_id,
+                    board_id,
+                    list_id,
+                    requester_user_id,
+                    source_guild_id,
+                    source_channel_id,
+                    source_thread_id,
+                    source_thread_name,
+                    transcript_text
+                  )
+                  values (
+                    $1::uuid,
+                    $2::uuid,
+                    $3::uuid,
+                    $4::uuid,
+                    $5::uuid,
+                    'guild-1',
+                    'channel-1',
+                    'thread-1',
+                    'Thread Probe',
+                    'Line 1'
+                  )
+                `,
+                ["cf1d5d76-56f2-4cc6-aae8-f3b5c73df2f8", orgA, boardA, listA, userViewer]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
+      const threadInsert = await runWithClaims(
+        client,
+        { sub: userEditor, org_id: orgA, role: "editor" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.thread_card_extractions (
+                id,
+                org_id,
+                board_id,
+                list_id,
+                requester_user_id,
+                source_guild_id,
+                source_channel_id,
+                source_thread_id,
+                source_thread_name,
+                transcript_text
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                $5::uuid,
+                'guild-1',
+                'channel-1',
+                'thread-1',
+                'Thread Probe',
+                'Line 1'
+              )
+              returning id
+            `,
+            ["2ea69b97-4f26-4de2-92eb-7f2ce18a4b3c", orgA, boardA, listA, userEditor]
+          )
+      );
+      assert.equal(threadInsert.rowCount, 1);
     } finally {
       await client.query("begin");
       await client.query(
@@ -171,6 +259,22 @@ test(
             '26dca08a-8b42-4f91-a7f9-a9f5ed9274c0'::uuid
           )
         `
+      );
+      await client.query(
+        `
+          delete from public.thread_card_extractions
+          where id in (
+            '2ea69b97-4f26-4de2-92eb-7f2ce18a4b3c'::uuid,
+            'cf1d5d76-56f2-4cc6-aae8-f3b5c73df2f8'::uuid
+          )
+        `
+      );
+      await client.query(
+        `
+          delete from public.lists
+          where id = $1::uuid
+        `,
+        [listA]
       );
       await client.query(
         `

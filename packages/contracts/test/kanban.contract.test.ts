@@ -9,17 +9,25 @@ import {
   discordCardSummarizeInputSchema,
   discordAskBoardStatusInputSchema,
   discordCardSummaryStatusInputSchema,
+  discordThreadToCardConfirmInputSchema,
+  discordThreadToCardInputSchema,
+  discordThreadToCardStatusInputSchema,
   aiCardSummaryRequestedPayloadSchema,
+  aiThreadToCardRequestedPayloadSchema,
   aiJobAcceptedSchema,
   cardSummaryResultSchema,
+  confirmThreadToCardInputSchema,
   authContextSchema,
   createBoardInputSchema,
   createCardInputSchema,
   geminiAskBoardOutputSchema,
   geminiCardSummaryOutputSchema,
+  geminiThreadToCardOutputSchema,
   moveCardInputSchema,
   outboxEventSchema,
+  queueThreadToCardInputSchema,
   queueCardSummaryInputSchema,
+  threadToCardResultSchema,
   updateCardInputSchema
 } from "../src/index.js";
 
@@ -132,14 +140,26 @@ test("contracts: validates ai queue inputs and accepted response", () => {
   });
   const accepted = aiJobAcceptedSchema.parse({
     jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
-    eventType: "ai.ask-board.requested",
+    eventType: "ai.thread-to-card.requested",
     status: "queued",
     queuedAt: new Date().toISOString()
+  });
+
+  const threadQueue = queueThreadToCardInputSchema.parse({
+    boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    listId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    sourceGuildId: "123",
+    sourceChannelId: "456",
+    sourceThreadId: "789",
+    sourceThreadName: "Release blocker thread",
+    participantDiscordUserIds: ["111", "222"],
+    transcript: "[2026-02-12] user: We are blocked by flaky deploys."
   });
 
   assert.equal(summarize.reason, "Prioritize blockers.");
   assert.equal(ask.topK, 6);
   assert.equal(accepted.status, "queued");
+  assert.equal(threadQueue.sourceThreadId, "789");
 });
 
 test("contracts: validates ai event payload and strict model output schemas", () => {
@@ -169,9 +189,32 @@ test("contracts: validates ai event payload and strict model output schemas", ()
     ]
   });
 
+  const threadPayload = aiThreadToCardRequestedPayloadSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    boardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    listId: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    actorUserId: "7452e6cf-ec88-4d88-a153-6f65a272240a",
+    sourceGuildId: "123",
+    sourceChannelId: "456",
+    sourceThreadId: "789",
+    sourceThreadName: "Thread title",
+    participantDiscordUserIds: ["111"],
+    transcript: "Thread transcript"
+  });
+
+  const threadDraft = geminiThreadToCardOutputSchema.parse({
+    title: "Stabilize release pipeline",
+    description: "Summarize blockers and owners from thread.",
+    checklist: [{ title: "Collect flaky tests", isDone: false }],
+    labels: [{ name: "release", color: "orange" }],
+    assigneeDiscordUserIds: ["111"]
+  });
+
   assert.equal(payload.reason, "Summarize risks");
   assert.equal(summary.highlights.length, 1);
   assert.equal(answer.references.length, 1);
+  assert.equal(threadPayload.sourceThreadName, "Thread title");
+  assert.equal(threadDraft.checklist?.length, 1);
 });
 
 test("contracts: validates ai persisted result payloads", () => {
@@ -206,8 +249,28 @@ test("contracts: validates ai persisted result payloads", () => {
     }
   });
 
+  const threadResult = threadToCardResultSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    boardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    listId: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    requesterUserId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+    sourceGuildId: "123",
+    sourceChannelId: "456",
+    sourceThreadId: "789",
+    sourceThreadName: "Release blocker thread",
+    participantDiscordUserIds: ["111"],
+    transcript: "Thread transcript",
+    status: "completed",
+    draft: {
+      title: "Stabilize release pipeline",
+      checklist: [{ title: "Collect flaky tests", isDone: false }],
+      assigneeUserIds: ["90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a"]
+    }
+  });
+
   assert.equal(summaryResult.status, "completed");
   assert.equal(askResult.answer?.references.length, 1);
+  assert.equal(threadResult.status, "completed");
 });
 
 test("contracts: validates discord ai command payloads", () => {
@@ -256,4 +319,37 @@ test("contracts: validates discord card edit payload", () => {
 
   assert.equal(payload.labels?.[0]?.color, "red");
   assert.equal(payload.checklist?.[0]?.isDone, true);
+});
+
+test("contracts: validates discord thread-to-card payloads", () => {
+  const queued = discordThreadToCardInputSchema.parse({
+    guildId: "123",
+    channelId: "456",
+    threadId: "789",
+    threadName: "Release blocker thread",
+    transcript: "Line 1\nLine 2",
+    participantDiscordUserIds: ["111", "222"]
+  });
+
+  const status = discordThreadToCardStatusInputSchema.parse({
+    guildId: "123",
+    channelId: "456",
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a"
+  });
+
+  const confirm = discordThreadToCardConfirmInputSchema.parse({
+    guildId: "123",
+    channelId: "456",
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    title: "Create release action card"
+  });
+
+  const confirmPayload = confirmThreadToCardInputSchema.parse({
+    description: "Use extracted checklist and assignees."
+  });
+
+  assert.equal(queued.threadId, "789");
+  assert.equal(status.jobId, "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a");
+  assert.equal(confirm.title, "Create release action card");
+  assert.equal(confirmPayload.description, "Use extracted checklist and assignees.");
 });

@@ -7,7 +7,9 @@ import type {
   CardSummaryResult,
   KanbanList,
   OutboxEvent,
-  Role
+  Role,
+  ThreadToCardDraft,
+  ThreadToCardResult
 } from "@kanban/contracts";
 
 export interface RequestContext {
@@ -110,6 +112,26 @@ export interface UpsertAskBoardRequestParams {
   updatedAt: string;
 }
 
+export interface UpsertThreadCardExtractionParams {
+  id: string;
+  orgId: string;
+  boardId: string;
+  listId: string;
+  requesterUserId: string;
+  sourceGuildId: string;
+  sourceChannelId: string;
+  sourceThreadId: string;
+  sourceThreadName: string;
+  participantDiscordUserIds?: string[];
+  transcript: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  draftJson?: ThreadToCardDraft;
+  createdCardId?: string;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
 export interface KanbanMutationContext {
   createBoard(input: CreateBoardParams): Promise<Board>;
   createList(input: CreateListParams): Promise<KanbanList>;
@@ -118,6 +140,7 @@ export interface KanbanMutationContext {
   moveCard(input: MoveCardParams): Promise<Card>;
   upsertCardSummary(input: UpsertCardSummaryParams): Promise<void>;
   upsertAskBoardRequest(input: UpsertAskBoardRequestParams): Promise<void>;
+  upsertThreadCardExtraction(input: UpsertThreadCardExtractionParams): Promise<void>;
   appendOutbox(event: OutboxEvent): Promise<void>;
 }
 
@@ -127,6 +150,7 @@ export interface KanbanRepository {
   findCardById(cardId: string): Promise<Card | null>;
   findCardSummaryByCardId(cardId: string): Promise<CardSummaryResult | null>;
   findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null>;
+  findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null>;
   listListsByBoardId(boardId: string): Promise<KanbanList[]>;
   listCardsByBoardId(boardId: string): Promise<Card[]>;
   runInTransaction<T>(

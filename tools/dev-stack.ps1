@@ -11,6 +11,7 @@ Set-StrictMode -Version Latest
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $statePath = Join-Path $root "dev_stack_state.json"
 $dotenvPath = Join-Path $root ".env"
+$discordPublicUrlEnvKey = "DISCORD_INTERACTIONS_PUBLIC_URL"
 $requiredArtifacts = @(
   "apps/api/dist/src/main.js",
   "apps/web/dist/src/dev-server.js",
@@ -95,6 +96,59 @@ function Save-State {
   $State | ConvertTo-Json -Depth 6 | Set-Content -Path $statePath -Encoding UTF8
 }
 
+function Set-OrAppendEnvValue {
+  param(
+    [string]$Path,
+    [string]$Key,
+    [string]$Value
+  )
+
+  if (-not (Test-Path $Path)) {
+    Write-Step "No .env file found at $Path; skipping $Key sync."
+    return $false
+  }
+
+  $lines = @(Get-Content -LiteralPath $Path)
+  $pattern = "^\s*" + [regex]::Escape($Key) + "\s*="
+  $replacement = "$Key=$Value"
+  $updated = $false
+
+  for ($index = 0; $index -lt $lines.Count; $index++) {
+    if ($lines[$index] -match $pattern) {
+      $lines[$index] = $replacement
+      $updated = $true
+      break
+    }
+  }
+
+  if (-not $updated) {
+    $lines += $replacement
+  }
+
+  Set-Content -LiteralPath $Path -Value $lines -Encoding ASCII
+  return $true
+}
+
+function Sync-InteractionsPublicUrl {
+  param([string]$PublicUrl)
+
+  if ([string]::IsNullOrWhiteSpace($PublicUrl)) {
+    return
+  }
+
+  $normalized = $PublicUrl.Trim().TrimEnd("/")
+  $synced = Set-OrAppendEnvValue `
+    -Path $dotenvPath `
+    -Key $discordPublicUrlEnvKey `
+    -Value $normalized
+
+  if ($synced) {
+    Write-Step "Synced $discordPublicUrlEnvKey in .env to $normalized"
+  }
+
+  Write-Step "Discord Interactions Endpoint URL: $normalized/interactions"
+}
+
 function Remove-FileIfExists {
   param([string]$Path)
   Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
@@ -126,6 +180,17 @@ function Get-ListeningPidsByPort {
   return @($pids)
 }
 
+function Get-PrimaryListeningPidByPort {
+  param([int]$Port)
+
+  $pids = @(Get-ListeningPidsByPort -Port $Port | Sort-Object)
+  if ($pids.Count -eq 0) {
+    return 0
+  }
+
+  return [int]$pids[0]
+}
+
 function Stop-PidIfRunning {
   param(
     [int]$ProcessId,
@@ -155,7 +220,7 @@ function Stop-TrackedProcesses {
     foreach ($service in $state.services) {
       $pidValue = 0
       [void][int]::TryParse([string]$service.Pid, [ref]$pidValue)
-      Stop-PidIfRunning -ProcessId $pidValue -Label "$($service.Name) wrapper"
+      Stop-PidIfRunning -ProcessId $pidValue -Label "$($service.Name) tracked process"
     }
   }
 
@@ -495,13 +560,21 @@ function Start-Stack {
       $startedServices += Start-ServiceProcess -ServiceDef $serviceDef
     }
 
-    foreach ($serviceDef in $serviceDefs) {
+    for ($index = 0; $index -lt $serviceDefs.Count; $index++) {
+      $serviceDef = $serviceDefs[$index]
       Wait-ForServiceProbe -ServiceDef $serviceDef
+      $listenerPid = Get-PrimaryListeningPidByPort -Port $serviceDef.Port
+      if ($listenerPid -gt 0) {
+        $startedServices[$index].Pid = $listenerPid
+      }
     }
 
     $tunnelState = $null
     if (-not $SkipTunnel) {
       $tunnelState = Start-TunnelProcess
+      if ($tunnelState -and $tunnelState.PublicUrl) {
+        Sync-InteractionsPublicUrl -PublicUrl $tunnelState.PublicUrl
+      }
     } else {
       Write-Step "Skipping Cloudflare tunnel startup (-SkipTunnel)."
     }

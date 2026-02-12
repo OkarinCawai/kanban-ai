@@ -14,7 +14,10 @@ import type {
   DiscordCardSummaryStatusInput,
   DiscordCardEditInput,
   DiscordCardMoveInput,
-  DiscordMyTasksInput
+  DiscordMyTasksInput,
+  DiscordThreadToCardConfirmInput,
+  DiscordThreadToCardInput,
+  DiscordThreadToCardStatusInput
 } from "@kanban/contracts";
 
 import { DiscordCommandService } from "./discord.service.js";
@@ -133,5 +136,35 @@ export class DiscordController {
     this.assertInternalToken(headers);
     const discordUserId = this.requireDiscordUserId(headers);
     return this.discordService.askBoardStatus(discordUserId, body);
+  }
+
+  @Post("commands/thread-to-card")
+  async threadToCard(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordThreadToCardInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.threadToCard(discordUserId, body);
+  }
+
+  @Post("commands/thread-to-card-status")
+  async threadToCardStatus(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordThreadToCardStatusInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.threadToCardStatus(discordUserId, body);
+  }
+
+  @Post("commands/thread-to-card-confirm")
+  async threadToCardConfirm(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordThreadToCardConfirmInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.threadToCardConfirm(discordUserId, body);
   }
 }

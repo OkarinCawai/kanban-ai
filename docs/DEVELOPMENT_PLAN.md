@@ -2,14 +2,13 @@
 
 This plan turns the brief into execution checkpoints for multiple agents.
 
-## Current Delivery Sequence (2026-02-11)
+## Current Delivery Sequence (2026-02-12)
 
 Execution priority for remaining milestones is explicitly:
-1. Milestone 8 (Card Enrichment: Trello-style details + badges)
-2. Milestone 4 (Thread to Card)
-3. Milestone 5 (Deterministic Covers)
-4. Milestone 6 (Hygiene + Digests)
-5. Milestone 9 (Ask-AI Evaluation Granularity + Quality Gates)
+1. Milestone 4 (Thread to Card)
+2. Milestone 5 (Deterministic Covers)
+3. Milestone 6 (Hygiene + Digests)
+4. Milestone 9 (Ask-AI Evaluation Granularity + Quality Gates)
 
 ## Milestone 1: Core Kanban + Security Base
 
@@ -86,6 +85,16 @@ Exit criteria:
 
 ## Milestone 4: Thread to Card
 
+Status (2026-02-12): `completed`
+
+Progress snapshot:
+- [x] Added contract/core/repository support for thread extraction queue/status/confirm lifecycle.
+- [x] Added migration `0005_m4_thread_to_card.sql` with RLS policies for `thread_card_extractions`.
+- [x] Worker now handles `ai.thread-to-card.requested` with strict Gemini draft extraction and retry-safe status persistence.
+- [x] Discord `/thread to-card` now ingests thread messages, shows preview, and provides confirm button action.
+- [x] Confirm action creates card/checklist/assignment idempotently via persisted `created_card_id`.
+- [x] Live thread-to-card queue/completion/confirm/idempotency flow verified via `npm run verify:live` bridge checks.
+
 Deliverables:
 - Discord thread ingestion and extraction pipeline.
 - Preview embed with confirm actions.
@@ -142,7 +151,7 @@ Exit criteria:
 
 ## Milestone 8: Card Enrichment (Trello-Style Details + Badges)
 
-Status (2026-02-11): `in-progress`
+Status (2026-02-12): `completed`
 
 Progress snapshot:
 - [x] Milestone kickoff approved after M7 completion.
@@ -150,7 +159,7 @@ Progress snapshot:
 - [x] Board cards render metadata badges (due/checklist/comments/attachments/assignees/labels).
 - [x] API/contracts/schema support enriched card fields and checklist lifecycle.
 - [x] Discord command path supports core enriched card mutations (`/card edit` adapter flow).
-- [ ] Live Supabase environments have migration `0004_m8_card_enrichment.sql` applied and verified in API Supabase e2e test.
+- [x] Live Supabase environments have migration `0004_m8_card_enrichment.sql` applied and verified in API Supabase e2e test.
 
 Deliverables:
 - Card details editing:

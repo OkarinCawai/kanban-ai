@@ -124,6 +124,20 @@ Newest decision with same topic supersedes older entries.
 - Decision: Extend `public.cards` with scalar detail columns (`start_at`, `due_at`, location, counts, assignee UUID array) and JSONB arrays for labels/checklist. Keep mutation paths on existing card create/update endpoints with optimistic concurrency.
 - Consequences: Enables rapid delivery without introducing additional RLS policy surfaces in M8; checklist/label operations are patch-based and may be normalized into dedicated tables later if query/performance demands increase.
 
+## D-017: M4 thread-to-card uses queued extraction records with idempotent confirm
+- Date: 2026-02-12
+- Status: `accepted`
+- Context: Thread ingestion requires async Gemini extraction, preview-before-create UX, and duplicate-safe retries/confirm actions.
+- Decision: Persist thread extraction jobs in `public.thread_card_extractions`, enqueue `ai.thread-to-card.requested` through outbox, and create cards only on explicit confirm while storing `created_card_id` for idempotency.
+- Consequences: Discord thread conversion stays retry-safe and ack-friendly with clear `queued/processing/completed/failed` lifecycle, at the cost of an additional RLS-scoped table and worker handler.
+
+## D-018: Thread-to-card queueing is restricted to editor/admin roles
+- Date: 2026-02-12
+- Status: `accepted`
+- Context: Thread extraction queueing writes persistence/outbox records and can trigger costly async processing.
+- Decision: Require `editor` or `admin` membership for `thread_card_extractions` inserts and enforce the same rule in core use-cases before enqueue.
+- Consequences: Viewers can still read thread extraction status but cannot enqueue new extractions, reducing abuse/cost risk and aligning with write-permission boundaries.
+
 ## Template for new decisions
 
 Use this block for future entries:

@@ -78,6 +78,36 @@ test("adapters: gemini ask-board client accepts fenced json output", async () =>
   assert.equal(response.references[0]?.chunkId, "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a");
 });
 
+test("adapters: gemini thread-to-card client parses strict draft output", async () => {
+  const fetchImpl = createFetchWithCandidate(
+    JSON.stringify({
+      title: "Stabilize release train",
+      description: "Summarize blockers and assign owners.",
+      checklist: [
+        { title: "Collect flaky tests", isDone: false },
+        { title: "Patch deployment rollback", isDone: false }
+      ],
+      labels: [{ name: "release", color: "orange" }],
+      assigneeDiscordUserIds: ["111111111111111111"]
+    })
+  );
+
+  const client = new GeminiJsonClient({
+    apiKey: "test-key",
+    fetchImpl
+  });
+
+  const draft = await client.generateThreadToCardDraft({
+    threadName: "Release blocker thread",
+    transcript: "User A: deploy failed",
+    participantDiscordUserIds: ["111111111111111111"]
+  });
+
+  assert.equal(draft.title, "Stabilize release train");
+  assert.equal(draft.checklist?.length, 2);
+  assert.equal(draft.labels?.[0]?.color, "orange");
+});
+
 test("adapters: gemini client rejects schema-invalid model output", async () => {
   const fetchImpl = createFetchWithCandidate(
     JSON.stringify({

@@ -27,6 +27,7 @@ const requiredTables = [
   "discord_channel_mappings",
   "card_summaries",
   "ai_ask_requests",
+  "thread_card_extractions",
   "documents",
   "document_chunks",
   "document_embeddings"
@@ -65,6 +66,9 @@ test("policy: board/list/card read and write policies are present", () => {
     "ai_ask_requests_select_policy",
     "ai_ask_requests_insert_policy",
     "ai_ask_requests_update_policy",
+    "thread_card_extractions_select_policy",
+    "thread_card_extractions_insert_policy",
+    "thread_card_extractions_update_policy",
     "documents_select_policy",
     "documents_write_policy",
     "document_chunks_select_policy",
@@ -111,4 +115,12 @@ test("policy: M8 card enrichment columns and constraints are present", () => {
   for (const constraint of requiredConstraints) {
     assert.match(sql, new RegExp(`\\b${constraint}\\b`, "i"), `Missing card constraint ${constraint}`);
   }
+});
+
+test("policy: thread-to-card writes require editor or admin role", () => {
+  assert.match(
+    sql,
+    /create policy thread_card_extractions_insert_policy[\s\S]*has_org_role\(org_id,\s*array\['editor',\s*'admin'\]\)[\s\S]*requester_user_id\s*=\s*public\.current_user_id\(\)/i,
+    "thread_card_extractions_insert_policy must require editor/admin and requester ownership."
+  );
 });

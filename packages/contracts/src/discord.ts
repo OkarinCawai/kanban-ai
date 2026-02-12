@@ -3,7 +3,8 @@ import { z } from "zod";
 import {
   aiJobAcceptedSchema,
   askBoardResultSchema,
-  cardSummaryResultSchema
+  cardSummaryResultSchema,
+  threadToCardResultSchema
 } from "./ai.js";
 import {
   boardSchema,
@@ -118,6 +119,29 @@ export const discordAskBoardStatusInputSchema = z.object({
   jobId: uuidString
 });
 
+export const discordThreadToCardInputSchema = z.object({
+  guildId: nonEmptyString,
+  channelId: nonEmptyString,
+  threadId: nonEmptyString.max(64),
+  threadName: nonEmptyString.max(200),
+  transcript: nonEmptyString.max(40_000),
+  participantDiscordUserIds: z.array(nonEmptyString.max(64)).max(50).optional()
+});
+
+export const discordThreadToCardStatusInputSchema = z.object({
+  guildId: nonEmptyString,
+  channelId: nonEmptyString,
+  jobId: uuidString
+});
+
+export const discordThreadToCardConfirmInputSchema = z.object({
+  guildId: nonEmptyString,
+  channelId: nonEmptyString,
+  jobId: uuidString,
+  title: nonEmptyString.max(200).optional(),
+  description: z.string().max(10_000).nullable().optional()
+});
+
 export const discordCardResponseSchema = z.object({
   card: cardSchema
 });
@@ -125,6 +149,12 @@ export const discordCardResponseSchema = z.object({
 export const discordAiJobAcceptedSchema = aiJobAcceptedSchema;
 export const discordCardSummaryStatusSchema = cardSummaryResultSchema;
 export const discordAskBoardStatusSchema = askBoardResultSchema;
+export const discordThreadToCardStatusSchema = threadToCardResultSchema;
+export const discordThreadToCardConfirmSchema = z.object({
+  jobId: uuidString,
+  created: z.boolean(),
+  card: cardSchema
+});
 
 export type DiscordMyTasksInput = z.infer<typeof discordMyTasksInputSchema>;
 export type DiscordBoardSnapshot = z.infer<typeof discordBoardSnapshotSchema>;
@@ -136,3 +166,7 @@ export type DiscordCardSummarizeInput = z.infer<typeof discordCardSummarizeInput
 export type DiscordAskBoardInput = z.infer<typeof discordAskBoardInputSchema>;
 export type DiscordCardSummaryStatusInput = z.infer<typeof discordCardSummaryStatusInputSchema>;
 export type DiscordAskBoardStatusInput = z.infer<typeof discordAskBoardStatusInputSchema>;
+export type DiscordThreadToCardInput = z.infer<typeof discordThreadToCardInputSchema>;
+export type DiscordThreadToCardStatusInput = z.infer<typeof discordThreadToCardStatusInputSchema>;
+export type DiscordThreadToCardConfirmInput = z.infer<typeof discordThreadToCardConfirmInputSchema>;
+export type DiscordThreadToCardConfirm = z.infer<typeof discordThreadToCardConfirmSchema>;

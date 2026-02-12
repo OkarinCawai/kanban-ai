@@ -1,29 +1,10 @@
-const STATUS_TERMINAL = new Set(["completed", "failed"]);
-const STATUS_ACTIVE = new Set(["queued", "processing"]);
-const HISTORY_LIMIT = 14;
-
-const state = {
-  boardId: null,
-  lists: [],
-  cards: [],
-  cardSummaries: {},
-  cardSummaryStatusByCardId: {},
-  cardSummaryUpdatedAtByCardId: {},
-  askBoardStatus: "idle",
-  askJobs: [],
-  activeAskJobId: null,
-  dragCardId: null,
-  selectedCardId: null,
-  movedCardAtByCardId: {},
-  accessToken: null,
-  authUserId: null,
-  diagnostics: {
-    requestCount: 0,
-    requestEvents: [],
-    pollEvents: [],
-    lastErrorByFeature: {}
-  }
-};
+import { state, appendHistory, recordFeatureError, recordRequestEvent, recordPollEvent, HISTORY_LIMIT } from "/src/state/store.js";
+import { config, updateConfig } from "/src/api/config.js";
+import { callApi } from "/src/api/client.js";
+import { nowIso, formatTimestamp, formatElapsed, toDateTimeLocalValue, fromDateTimeLocalValue, parseCsv } from "/src/utils/formatting.js";
+import { sortedCardsForList, appendPosition, moveCardToList } from "/src/features/board/logic.js";
+import { pollCardSummary, pollAskBoardResult, STATUS_TERMINAL, STATUS_ACTIVE, toUiStatus } from "/src/features/ai/polling.js";
+import { persistSupabaseConfig as _persistSupabaseConfig, hydrateSupabaseConfig as _hydrateSupabaseConfig, clearSupabaseAuthStorage, getSupabaseClient as _getSupabaseClient } from "/src/api/auth.js";
 
 const dom = {
   apiUrl: document.getElementById("apiUrl"),
@@ -86,51 +67,22 @@ const dom = {
   cardTemplate: document.getElementById("cardTemplate")
 };
 
-const STORAGE_KEYS = {
-  supabaseUrl: "kanban.supabaseUrl",
-  supabaseKey: "kanban.supabaseKey",
-  pkcePrefix: "kanban.pkce."
+// Sync Config
+const syncConfig = () => {
+  updateConfig({
+    apiUrl: dom.apiUrl.value.trim(),
+    userId: dom.userId.value.trim(),
+    orgId: dom.orgId.value.trim(),
+    role: dom.role.value
+  });
 };
+syncConfig();
+[dom.apiUrl, dom.userId, dom.orgId, dom.role].forEach(el => {
+  el?.addEventListener("input", syncConfig);
+  el?.addEventListener("change", syncConfig);
+});
 
-const nowIso = () => new Date().toISOString();
 
-const appendHistory = (target, entry, maxItems = HISTORY_LIMIT) => {
-  target.unshift(entry);
-  if (target.length > maxItems) {
-    target.length = maxItems;
-  }
-};
-
-const formatTimestamp = (value) => {
-  if (!value) {
-    return "n/a";
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) {
-    return "n/a";
-  }
-  return date.toLocaleString();
-};
-
-const formatElapsed = (startIso, endIso = nowIso()) => {
-  if (!startIso) {
-    return "0s";
-  }
-  const start = new Date(startIso).valueOf();
-  const end = new Date(endIso).valueOf();
-  if (!Number.isFinite(start) || !Number.isFinite(end)) {
-    return "0s";
-  }
-
-  const elapsed = Math.max(0, Math.floor((end - start) / 1000));
-  if (elapsed < 60) {
-    return `${elapsed}s`;
-  }
-  const minutes = Math.floor(elapsed / 60);
-  const seconds = elapsed % 60;
-  return `${minutes}m ${seconds}s`;
-};
 
 const LABEL_COLORS = new Set([
   "gray",
@@ -143,37 +95,7 @@ const LABEL_COLORS = new Set([
   "teal"
 ]);
 
-const toDateTimeLocalValue = (isoValue) => {
-  if (!isoValue) {
-    return "";
-  }
 
-  const parsed = new Date(isoValue);
-  if (Number.isNaN(parsed.valueOf())) {
-    return "";
-  }
-
-  const local = new Date(parsed.valueOf() - parsed.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-};
-
-const fromDateTimeLocalValue = (localValue) => {
-  if (!localValue) {
-    return null;
-  }
-
-  const parsed = new Date(localValue);
-  if (Number.isNaN(parsed.valueOf())) {
-    return null;
-  }
-  return parsed.toISOString();
-};
-
-const parseCsv = (value) =>
-  value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 
 const parseLabelsText = (value) => {
   if (!value.trim()) {
@@ -256,8 +178,8 @@ const getSelectedCard = () =>
 const isEditingDetailForm = () =>
   Boolean(
     dom.cardDetailForm &&
-      document.activeElement instanceof HTMLElement &&
-      dom.cardDetailForm.contains(document.activeElement)
+    document.activeElement instanceof HTMLElement &&
+    dom.cardDetailForm.contains(document.activeElement)
   );
 
 const setCardDetailFormEnabled = (enabled) => {
@@ -407,13 +329,7 @@ const buildCardPatchFromForm = (card) => {
   };
 };
 
-const toUiStatus = (value) => {
-  if (value === "queued" || value === "processing" || value === "completed" || value === "failed") {
-    return value;
-  }
-  return "idle";
-};
-
+// toUiStatus imported. applyStatusChip kept.
 const applyStatusChip = (element, status, labelPrefix = "") => {
   if (!element) {
     return;
@@ -457,317 +373,19 @@ const syncToggleExpanded = (button, isExpanded) => {
   button.setAttribute("aria-expanded", isExpanded ? "true" : "false");
 };
 
-const recordFeatureError = (feature, message) => {
-  state.diagnostics.lastErrorByFeature[feature] = {
-    message,
-    at: nowIso()
-  };
-};
 
-const recordRequestEvent = (event) => {
-  appendHistory(state.diagnostics.requestEvents, event);
-};
-
-const recordPollEvent = (event) => {
-  appendHistory(state.diagnostics.pollEvents, event);
-};
-
-const authHeaders = () => {
-  const headers = {
-    "Content-Type": "application/json",
-    "x-org-id": dom.orgId.value.trim(),
-    "x-role": dom.role.value
-  };
-
-  if (state.accessToken) {
-    headers.Authorization = `Bearer ${state.accessToken}`;
-  } else {
-    headers["x-user-id"] = dom.userId.value.trim();
-  }
-
-  return headers;
-};
-
-const callApi = async (path, method, body, feature = "generic") => {
-  const started = Date.now();
-  const localRequestId = `web-${++state.diagnostics.requestCount}`;
-
-  try {
-    const response = await fetch(`${dom.apiUrl.value}${path}`, {
-      method,
-      headers: authHeaders(),
-      body: body ? JSON.stringify(body) : undefined
-    });
-
-    const json = await response.json().catch(() => ({}));
-    const durationMs = Date.now() - started;
-
-    recordRequestEvent({
-      localRequestId,
-      apiRequestId: response.headers.get("x-request-id"),
-      feature,
-      method,
-      path,
-      status: response.status,
-      durationMs,
-      at: nowIso()
-    });
-
-    if (!response.ok) {
-      const message = json.message ?? `Request failed: ${response.status}`;
-      recordFeatureError(feature, message);
-      const apiError = new Error(message);
-      apiError.__kanbanRecorded = "1";
-      throw apiError;
-    }
-
-    return json;
-  } catch (error) {
-    if (error?.__kanbanRecorded === "1") {
-      throw error;
-    }
-
-    const durationMs = Date.now() - started;
-    const message = error instanceof Error ? error.message : String(error);
-    recordRequestEvent({
-      localRequestId,
-      apiRequestId: null,
-      feature,
-      method,
-      path,
-      status: "network-error",
-      durationMs,
-      at: nowIso()
-    });
-    recordFeatureError(feature, message);
-    throw error;
-  }
-};
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const pollCardSummary = async (
-  cardId,
-  attempts = 10,
-  intervalMs = 1500,
-  onStatus
-) => {
-  let latest = null;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    latest = await callApi(
-      `/cards/${cardId}/summary`,
-      "GET",
-      undefined,
-      "card-summary-poll"
-    );
-    const nextStatus = toUiStatus(latest?.status ?? "queued");
-    recordPollEvent({
-      feature: "card-summary",
-      targetId: cardId,
-      attempt,
-      status: nextStatus,
-      at: nowIso()
-    });
-    onStatus?.(nextStatus, attempt);
-    if (STATUS_TERMINAL.has(nextStatus)) {
-      return latest;
-    }
-    await sleep(intervalMs);
-  }
-  return latest;
-};
-
-const pollAskBoardResult = async (
-  jobId,
-  attempts = 10,
-  intervalMs = 1500,
-  onStatus
-) => {
-  let latest = null;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    latest = await callApi(
-      `/ai/ask-board/${jobId}`,
-      "GET",
-      undefined,
-      "ask-board-poll"
-    );
-    const nextStatus = toUiStatus(latest?.status ?? "queued");
-    recordPollEvent({
-      feature: "ask-board",
-      targetId: jobId,
-      attempt,
-      status: nextStatus,
-      at: nowIso()
-    });
-    onStatus?.(nextStatus, attempt);
-    if (STATUS_TERMINAL.has(nextStatus)) {
-      return latest;
-    }
-    await sleep(intervalMs);
-  }
-  return latest;
-};
-
-const sortedCardsForList = (listId) =>
-  state.cards
-    .filter((card) => card.listId === listId)
-    .sort((a, b) => a.position - b.position);
-
-const appendPosition = (cards) => {
-  if (!cards.length) {
-    return 1024;
-  }
-
-  return cards[cards.length - 1].position + 1024;
-};
-
-const moveCardToList = async (card, toListId) => {
-  const destination = sortedCardsForList(toListId).filter((item) => item.id !== card.id);
-  const nextPosition = appendPosition(destination);
-
-  const moved = await callApi(
-    `/cards/${card.id}/move`,
-    "PATCH",
-    {
-      toListId,
-      position: nextPosition,
-      expectedVersion: card.version
-    },
-    "card-move"
-  );
-
-  state.cards = state.cards.map((item) => (item.id === moved.id ? moved : item));
-  state.movedCardAtByCardId[moved.id] = Date.now();
-  return moved;
-};
 
 const persistSupabaseConfig = () => {
-  const url = dom.supabaseUrl.value.trim();
-  const key = dom.supabaseKey.value.trim();
-
-  if (url) {
-    localStorage.setItem(STORAGE_KEYS.supabaseUrl, url);
-  }
-  if (key) {
-    localStorage.setItem(STORAGE_KEYS.supabaseKey, key);
-  }
+  _persistSupabaseConfig(dom.supabaseUrl.value.trim(), dom.supabaseKey.value.trim());
 };
 
 const hydrateSupabaseConfig = () => {
-  const url = localStorage.getItem(STORAGE_KEYS.supabaseUrl);
-  const key = localStorage.getItem(STORAGE_KEYS.supabaseKey);
-
-  if (url && !dom.supabaseUrl.value.trim()) {
-    dom.supabaseUrl.value = url;
-  }
-  if (key && !dom.supabaseKey.value.trim()) {
-    dom.supabaseKey.value = key;
-  }
+  const { url, key } = _hydrateSupabaseConfig();
+  if (url && !dom.supabaseUrl.value.trim()) dom.supabaseUrl.value = url;
+  if (key && !dom.supabaseKey.value.trim()) dom.supabaseKey.value = key;
 };
 
-let cachedSupabase = null;
-let cachedSupabaseConfig = { url: "", key: "" };
-
-const getSupabaseProjectRef = (url) => {
-  try {
-    const parsed = new URL(url);
-    const host = parsed.hostname;
-    const ref = host.split(".")[0];
-    return ref ?? "";
-  } catch {
-    return "";
-  }
-};
-
-const getSupabaseStorageKey = (supabaseUrl) => {
-  const ref = getSupabaseProjectRef(supabaseUrl);
-  return ref ? `sb-${ref}-auth-token` : "";
-};
-
-const getSupabaseCodeVerifierKey = (supabaseUrl) => {
-  const storageKey = getSupabaseStorageKey(supabaseUrl);
-  return storageKey ? `${storageKey}-code-verifier` : "";
-};
-
-const clearSupabaseAuthStorage = (supabaseUrl) => {
-  const ref = getSupabaseProjectRef(supabaseUrl);
-  let removed = 0;
-
-  // Clear any saved PKCE snapshots from prior attempts.
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(STORAGE_KEYS.pkcePrefix)) {
-      localStorage.removeItem(key);
-      removed += 1;
-    }
-  }
-
-  if (!ref) {
-    return removed;
-  }
-
-  const prefix = `sb-${ref}-`;
-
-  for (const key of Object.keys(localStorage)) {
-    if (key.startsWith(prefix)) {
-      localStorage.removeItem(key);
-      removed += 1;
-    }
-  }
-
-  for (const key of Object.keys(sessionStorage)) {
-    if (key.startsWith(prefix)) {
-      sessionStorage.removeItem(key);
-      removed += 1;
-    }
-  }
-
-  return removed;
-};
-
-const normalizeMaybeJsonString = (value) => {
-  if (typeof value !== "string") {
-    return value;
-  }
-
-  try {
-    const parsed = JSON.parse(value);
-    return typeof parsed === "string" ? parsed : value;
-  } catch {
-    return value;
-  }
-};
-
-const getSupabaseClient = async () => {
-  const url = dom.supabaseUrl.value.trim();
-  const key = dom.supabaseKey.value.trim();
-
-  if (!url || !key) {
-    return null;
-  }
-
-  if (
-    cachedSupabase &&
-    cachedSupabaseConfig.url === url &&
-    cachedSupabaseConfig.key === key
-  ) {
-    return cachedSupabase;
-  }
-
-  // Pin the version so auth flows don't break due to CDN "latest" changes.
-  const { createClient } = await import(
-    "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.95.3/+esm"
-  );
-
-  cachedSupabase = createClient(url, key, {
-    auth: {
-      persistSession: true,
-      detectSessionInUrl: false,
-      flowType: "pkce"
-    }
-  });
-  cachedSupabaseConfig = { url, key };
-  return cachedSupabase;
-};
+const getSupabaseClient = () => _getSupabaseClient(dom.supabaseUrl.value.trim(), dom.supabaseKey.value.trim());
 
 const refreshAuthState = async () => {
   const supabase = await getSupabaseClient();

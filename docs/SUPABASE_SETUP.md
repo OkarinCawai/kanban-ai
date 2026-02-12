@@ -22,6 +22,8 @@ Run SQL from:
 - `infra/db/migrations/0001_m1_core_schema.sql`
 - `infra/db/migrations/0002_m2_discord_integration.sql`
 - `infra/db/migrations/0003_m3_ai_rag_scaffold.sql`
+- `infra/db/migrations/0004_m8_card_enrichment.sql`
+- `infra/db/migrations/0005_m4_thread_to_card.sql`
 
 Apply it in Supabase SQL Editor or your migration pipeline.
 
@@ -36,7 +38,7 @@ Apply it in Supabase SQL Editor or your migration pipeline.
 - Supabase and Gemini keys are now wired into runtime env handling.
 - API defaults to Supabase-backed repository for request paths.
 - For isolated local tests, set `KANBAN_REPOSITORY=memory`.
-- `npm run db:migrate` applies M1 + M2 + M3 scaffold migrations using `SUPABASE_DB_URL`.
+- `npm run db:migrate` applies migrations `0001` through `0005` (M1/M2/M3/M8/M4) using `SUPABASE_DB_URL`.
 - `npm run test:policy` includes live Supabase RLS verification (`infra/db/tests/rls-live.test.mjs`).
 - `npm run verify:live` validates local web/api/discord/worker liveness plus M2 command-path probes.
 - Deployment runbook: `docs/M2_DEPLOY_CHECKLIST.md`.
@@ -92,6 +94,7 @@ Discord command expectation (M2):
 - `apps/discord` exposes a Discord Interactions endpoint at `POST /interactions`.
 - Discord `/connect` returns a link to `http://localhost:3002/connect.html?discord_user_id=<snowflake>`.
 - After the identity is linked, `/my tasks`, `/card create`, `/card move`, `/card summarize`, and `/ai ask` call the API via internal token:
+- After the identity is linked, `/my tasks`, `/card create`, `/card move`, `/card summarize`, `/ai ask`, and `/thread to-card` call the API via internal token:
   - API endpoints: `POST /discord/commands/*`
   - Required headers:
     - `x-discord-internal-token: <DISCORD_INTERNAL_TOKEN>`
@@ -113,7 +116,9 @@ Discord Developer Portal requirement for slash commands:
   - Example during local dev: `https://<your-tunnel-domain>/interactions`.
   - `http://localhost:3003/interactions` cannot be called by Discord directly.
 - Restart stack with tunnel reboot when needed: `npm run dev:restart`
-  - The quick tunnel URL is printed by `dev:restart` and also written to `dev_tunnel_err.log`.
+  - A new quick tunnel URL is created on each restart.
+  - `DISCORD_INTERACTIONS_PUBLIC_URL` in `.env` is auto-synced to the new URL for local verification tooling.
+  - The exact interactions endpoint (`<url>/interactions`) is printed by `dev:restart` and tunnel logs are written to `dev_tunnel_err.log`.
 - If this URL is wrong/unreachable, Discord commands appear but invocation fails with "application did not respond".
 - In channel-level permission overrides, ensure the app can at least use application commands in that channel.
 

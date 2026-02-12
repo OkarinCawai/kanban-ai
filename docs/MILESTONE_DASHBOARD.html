@@ -354,7 +354,7 @@
         {
           id: "M8",
           title: "Card Enrichment (Trello-Style Details + Badges)",
-          status: "in-progress",
+          status: "completed",
           tasks: [
             { label: "Kickoff after M7 completion", done: true },
             { label: "Card details editing (description, assignees, dates, location, checklist, labels)", done: true },
@@ -362,7 +362,7 @@
             { label: "Contracts + core use-cases for enriched card fields", done: true },
             { label: "Schema migration + RLS policy coverage for new fields/tables", done: true },
             { label: "API + Discord adapter paths for enriched card mutations", done: true },
-            { label: "Domain/API/RLS coverage incl live Supabase migration verification", done: false }
+            { label: "Domain/API/RLS coverage incl live Supabase migration verification", done: true }
           ],
           updates: [
             "2026-02-11: Planned from Trello reference UX to support fully populated card details and glanceable card badges.",
@@ -371,20 +371,26 @@
             "2026-02-11: Added card detail editor UI and board metadata badges in apps/web/public.",
             "2026-02-11: Added contract/core/repository support + migration 0004_m8_card_enrichment.sql.",
             "2026-02-11: Added Discord adapter mutation path for enriched updates (`/card edit` -> `/discord/commands/card-edit`).",
-            "2026-02-11: API Supabase e2e now skips until migration 0004 is applied in the target database."
+            "2026-02-11: API Supabase e2e now skips until migration 0004 is applied in the target database.",
+            "2026-02-12: Applied migration 0004 on Supabase and verified M8 gate with passing API Supabase e2e + policy live tests."
           ]
         },
         {
           id: "M4",
           title: "Thread to Card",
-          status: "planned",
+          status: "completed",
           tasks: [
-            { label: "Thread fetch and extraction", done: false },
-            { label: "Preview embed and action buttons", done: false },
-            { label: "Create card/checklist assignment flow", done: false }
+            { label: "Thread fetch and extraction", done: true },
+            { label: "Preview embed and action buttons", done: true },
+            { label: "Create card/checklist assignment flow", done: true },
+            { label: "Live Discord interactions verification", done: true }
           ],
           updates: [
-            "2026-02-11: Sequenced after M7 and M8."
+            "2026-02-11: Sequenced after M7 and M8.",
+            "2026-02-12: Added contract/core/repository + migration support for thread extraction lifecycle.",
+            "2026-02-12: Worker now processes ai.thread-to-card.requested with strict draft extraction and retry-safe status updates.",
+            "2026-02-12: Discord now supports /thread to-card preview with confirm action button and idempotent card creation.",
+            "2026-02-12: verify:live now validates M4 bridge flow end-to-end (queue, completion, confirm, idempotency)."
           ]
         },
         {
@@ -434,9 +440,9 @@
       ];
 
       const TEST_SIGNAL = {
-        passing: 40,
+        passing: 70,
         failing: 0,
-        verifiedAt: "2026-02-11 (latest local npm run test)"
+        verifiedAt: "2026-02-12 (latest full npm run test + verify:live)"
       };
 
       const boardEl = document.getElementById("board");

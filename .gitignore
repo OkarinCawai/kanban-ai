@@ -27,6 +27,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+dev_stack_state.json
 
 # OS/editor noise
 .DS_Store

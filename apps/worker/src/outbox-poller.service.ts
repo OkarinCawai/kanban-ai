@@ -1,9 +1,11 @@
 import {
   aiAskBoardRequestedPayloadSchema,
   aiCardSummaryRequestedPayloadSchema,
+  aiThreadToCardRequestedPayloadSchema,
   roleSchema,
   type AiAskBoardRequestedPayload,
   type AiCardSummaryRequestedPayload,
+  type AiThreadToCardRequestedPayload,
   type Role
 } from "@kanban/contracts";
 import {
@@ -26,7 +28,11 @@ import {
   roughTokenCount
 } from "./ai-grounding.js";
 
-const AI_OUTBOX_TYPES = ["ai.card-summary.requested", "ai.ask-board.requested"] as const;
+const AI_OUTBOX_TYPES = [
+  "ai.card-summary.requested",
+  "ai.ask-board.requested",
+  "ai.thread-to-card.requested"
+] as const;
 
 const parsePositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value ?? String(fallback));
@@ -79,6 +85,22 @@ type ExistingDocumentRow = {
   embedding_id: string | null;
 };
 
+type ThreadCardExtractionRow = {
+  id: string;
+  board_id: string;
+  list_id: string;
+  requester_user_id: string;
+  source_guild_id: string;
+  source_channel_id: string;
+  source_thread_id: string;
+  source_thread_name: string;
+  participant_discord_user_ids: string[] | null;
+  transcript_text: string;
+  status: string;
+  draft_json: unknown;
+  created_card_id: string | null;
+};
+
 type ParsedOutboxEvent =
   | {
       type: "ai.card-summary.requested";
@@ -87,6 +109,10 @@ type ParsedOutboxEvent =
   | {
       type: "ai.ask-board.requested";
       payload: AiAskBoardRequestedPayload;
+    }
+  | {
+      type: "ai.thread-to-card.requested";
+      payload: AiThreadToCardRequestedPayload;
     };
 
 @Injectable()
@@ -279,6 +305,13 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (row.type === "ai.thread-to-card.requested") {
+      return {
+        type: row.type,
+        payload: aiThreadToCardRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
     throw new Error(`Unsupported outbox event type: ${row.type}`);
   }
 
@@ -289,6 +322,11 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     if (event.type === "ai.card-summary.requested") {
       await this.executeCardSummary(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "ai.thread-to-card.requested") {
+      await this.executeThreadToCard(client, row, event.payload);
       return;
     }
 
@@ -436,6 +474,157 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         row.id
       ]
     );
+  }
+
+  private async executeThreadToCard(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiThreadToCardRequestedPayload
+  ): Promise<void> {
+    const extractionResult = await client.query<ThreadCardExtractionRow>(
+      `
+        select
+          id,
+          board_id,
+          list_id,
+          requester_user_id,
+          source_guild_id,
+          source_channel_id,
+          source_thread_id,
+          source_thread_name,
+          participant_discord_user_ids,
+          transcript_text,
+          status,
+          draft_json,
+          created_card_id
+        from public.thread_card_extractions
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.jobId, row.org_id]
+    );
+
+    const extraction = extractionResult.rows[0];
+    if (!extraction) {
+      throw new Error(`Thread extraction ${payload.jobId} was not found.`);
+    }
+
+    if (extraction.board_id !== payload.boardId || extraction.list_id !== payload.listId) {
+      throw new Error(`Thread extraction ${payload.jobId} has mismatched board/list metadata.`);
+    }
+
+    if (extraction.created_card_id) {
+      return;
+    }
+
+    if (extraction.status === "completed" && extraction.draft_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.thread_card_extractions
+        set
+          status = 'processing',
+          failure_reason = null,
+          updated_at = now()
+        where id = $1::uuid
+      `,
+      [payload.jobId]
+    );
+
+    if (!this.geminiClient) {
+      throw new Error("Gemini client is not initialized.");
+    }
+
+    try {
+      const draft = await this.geminiClient.generateThreadToCardDraft({
+        threadName: payload.sourceThreadName,
+        transcript: payload.transcript,
+        participantDiscordUserIds: payload.participantDiscordUserIds ?? []
+      });
+
+      const assigneeUserIds = await this.resolveAssigneeUserIds(
+        client,
+        row.org_id,
+        draft.assigneeDiscordUserIds ?? []
+      );
+
+      const checklist = (draft.checklist ?? []).map((item, index) => ({
+        title: item.title.trim(),
+        isDone: Boolean(item.isDone),
+        position:
+          typeof item.position === "number" && Number.isFinite(item.position)
+            ? item.position
+            : index * 1024
+      }));
+
+      const normalizedDraft = {
+        title: draft.title.trim(),
+        description: draft.description?.trim() || undefined,
+        checklist,
+        labels: draft.labels ?? [],
+        assigneeUserIds
+      };
+
+      await client.query(
+        `
+          update public.thread_card_extractions
+          set
+            status = 'completed',
+            draft_json = $2::jsonb,
+            source_event_id = $3::uuid,
+            failure_reason = null,
+            updated_at = now()
+          where id = $1::uuid
+        `,
+        [payload.jobId, JSON.stringify(normalizedDraft), row.id]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.thread_card_extractions
+          set
+            status = 'failed',
+            failure_reason = $2,
+            source_event_id = $3::uuid,
+            updated_at = now()
+          where id = $1::uuid
+        `,
+        [payload.jobId, failureReason, row.id]
+      );
+
+      throw error;
+    }
+  }
+
+  private async resolveAssigneeUserIds(
+    client: PoolClient,
+    orgId: string,
+    discordUserIds: string[]
+  ): Promise<string[]> {
+    if (discordUserIds.length === 0) {
+      return [];
+    }
+
+    const result = await client.query<{ user_id: string }>(
+      `
+        select distinct di.user_id
+        from public.discord_identities di
+        inner join public.memberships m
+          on m.user_id = di.user_id
+         and m.org_id = $2::uuid
+        where di.discord_user_id = any($1::text[])
+      `,
+      [discordUserIds, orgId]
+    );
+
+    return Array.from(new Set(result.rows.map((row) => row.user_id)));
   }
 
   private async resolveActorRole(

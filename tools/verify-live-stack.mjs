@@ -1,4 +1,6 @@
 import process from "node:process";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 import { Client } from "pg";
 
@@ -22,6 +24,25 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = 7000) => {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeout);
+  }
+};
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const readCurrentTunnelUrl = async () => {
+  const statePath = path.join(process.cwd(), "dev_stack_state.json");
+  try {
+    const content = await readFile(statePath, "utf8");
+    const parsed = JSON.parse(content.replace(/^\uFEFF/, ""));
+    const value = parsed?.Tunnel?.PublicUrl;
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  } catch {
+    return null;
   }
 };
 
@@ -168,24 +189,37 @@ const verifyM2DatabaseState = async (client) => {
     `
       select
         i.discord_user_id,
+        i.user_id,
+        g.org_id,
         m.guild_id,
         m.channel_id,
-        m.default_list_id
-      from public.discord_identities i
-      cross join lateral (
-        select guild_id, channel_id, default_list_id
-        from public.discord_channel_mappings
-        order by created_at desc
-        limit 1
-      ) m
-      order by i.created_at desc
+        m.default_list_id,
+        mem.role
+      from public.discord_channel_mappings m
+      inner join public.discord_guilds g
+        on g.guild_id = m.guild_id
+      inner join public.memberships mem
+        on mem.org_id = g.org_id
+       and mem.role in ('editor', 'admin')
+      inner join public.discord_identities i
+        on i.user_id = mem.user_id
+      where exists (
+        select 1
+        from public.boards b
+        where b.id = m.board_id
+          and b.org_id = g.org_id
+      )
+      order by m.created_at desc, i.created_at desc
       limit 1
     `
   );
 
   const probeRow = probe.rows[0];
   if (!probeRow) {
-    fail("db-data", "Could not resolve a Discord identity + channel mapping probe row.");
+    fail(
+      "db-data",
+      "Could not resolve a Discord identity + channel mapping probe row with editor/admin membership."
+    );
     return null;
   }
 
@@ -291,41 +325,250 @@ const verifyM2CommandBridge = async (args) => {
   }
 };
 
-const verifyPublicInteractionsIngress = async () => {
-  const base = process.env.DISCORD_INTERACTIONS_PUBLIC_URL?.trim();
-  if (!base) {
+const verifyM4ThreadToCardBridge = async (args) => {
+  const { client, token, probeRow } = args;
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!geminiApiKey) {
     warn(
-      "discord-public",
-      "DISCORD_INTERACTIONS_PUBLIC_URL is not set; skipping public ingress probe."
+      "m4-thread",
+      "GEMINI_API_KEY is not set; skipping live M4 thread-to-card verification."
     );
     return;
   }
 
-  const url = base.endsWith("/") ? `${base}interactions` : `${base}/interactions`;
+  const discordUserId = String(probeRow.discord_user_id);
+  const guildId = String(probeRow.guild_id);
+  const channelId = String(probeRow.channel_id);
+
+  let createdCardId = null;
+  let jobId = null;
+
   try {
-    const response = await fetchWithTimeout(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}"
+    const queueResponse = await callDiscordBridge({
+      path: "/discord/commands/thread-to-card",
+      token,
+      discordUserId,
+      body: {
+        guildId,
+        channelId,
+        threadId: `m4-thread-${Date.now()}`,
+        threadName: "M4 live thread probe",
+        transcript: [
+          "[2026-02-12T12:00:00.000Z] coordinator: Production deploy failed twice.",
+          "[2026-02-12T12:03:00.000Z] engineer: Please create follow-up tasks.",
+          "[2026-02-12T12:05:00.000Z] coordinator: Assign owner and checklist."
+        ].join("\n"),
+        participantDiscordUserIds: [discordUserId]
+      }
     });
 
-    if (response.status === 401 || response.status === 400 || response.status === 200) {
-      pass("discord-public", `Public interactions ingress responded with HTTP ${response.status}.`);
+    jobId = queueResponse.payload?.jobId ?? null;
+    if (queueResponse.status !== 201 || !jobId) {
+      fail(
+        "m4-thread-queue",
+        `Expected 201 + jobId from /thread-to-card, got status ${queueResponse.status}.`
+      );
       return;
     }
 
-    warn(
-      "discord-public",
-      `Public interactions ingress responded with HTTP ${response.status}; expected 401/400/200.`
+    pass("m4-thread-queue", `Thread extraction queued (jobId=${jobId}).`);
+
+    let latestStatus = null;
+    const maxAttempts = 30;
+    const delayMs = 2000;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const statusResponse = await callDiscordBridge({
+        path: "/discord/commands/thread-to-card-status",
+        token,
+        discordUserId,
+        body: { guildId, channelId, jobId }
+      });
+
+      if (statusResponse.status !== 201) {
+        fail(
+          "m4-thread-status",
+          `Expected 201 from /thread-to-card-status, got status ${statusResponse.status}.`
+        );
+        return;
+      }
+
+      latestStatus = statusResponse.payload;
+      const statusValue = latestStatus?.status;
+      if (statusValue === "completed" || statusValue === "failed") {
+        break;
+      }
+
+      if (attempt < maxAttempts) {
+        await sleep(delayMs);
+      }
+    }
+
+    if (!latestStatus || !["completed", "failed"].includes(latestStatus.status)) {
+      fail(
+        "m4-thread-status",
+        "Thread extraction did not reach completed/failed state within polling window."
+      );
+      return;
+    }
+
+    if (latestStatus.status === "failed") {
+      fail(
+        "m4-thread-status",
+        `Thread extraction failed: ${latestStatus.failureReason ?? "unknown error"}.`
+      );
+      return;
+    }
+
+    if (!latestStatus.draft?.title) {
+      fail(
+        "m4-thread-status",
+        "Thread extraction completed without a draft title."
+      );
+      return;
+    }
+
+    pass(
+      "m4-thread-status",
+      `Thread extraction completed with draft title: "${latestStatus.draft.title}".`
     );
-  } catch (error) {
-    warn(
-      "discord-public",
-      `Public interactions ingress probe failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
+
+    const confirmResponse = await callDiscordBridge({
+      path: "/discord/commands/thread-to-card-confirm",
+      token,
+      discordUserId,
+      body: { guildId, channelId, jobId }
+    });
+
+    createdCardId = confirmResponse.payload?.card?.id ?? null;
+    if (
+      confirmResponse.status !== 201 ||
+      confirmResponse.payload?.created !== true ||
+      !createdCardId
+    ) {
+      fail(
+        "m4-thread-confirm",
+        `Expected confirm to create a card, got status ${confirmResponse.status}.`
+      );
+      return;
+    }
+
+    pass("m4-thread-confirm", `Thread confirm created card ${createdCardId}.`);
+
+    const secondConfirm = await callDiscordBridge({
+      path: "/discord/commands/thread-to-card-confirm",
+      token,
+      discordUserId,
+      body: { guildId, channelId, jobId }
+    });
+
+    const idempotentCardId = secondConfirm.payload?.card?.id ?? null;
+    if (
+      secondConfirm.status !== 201 ||
+      secondConfirm.payload?.created !== false ||
+      idempotentCardId !== createdCardId
+    ) {
+      fail(
+        "m4-thread-idempotency",
+        `Expected second confirm to be idempotent, got status ${secondConfirm.status}.`
+      );
+      return;
+    }
+
+    pass(
+      "m4-thread-idempotency",
+      `Second confirm reused existing card ${idempotentCardId}.`
     );
+  } finally {
+    if (createdCardId) {
+      await client.query(
+        "delete from public.outbox_events where payload->>'cardId' = $1",
+        [createdCardId]
+      );
+      await client.query("delete from public.cards where id = $1::uuid", [createdCardId]);
+    }
+
+    if (jobId) {
+      await client.query(
+        "delete from public.outbox_events where id = $1::uuid or payload->>'jobId' = $2",
+        [jobId, jobId]
+      );
+      await client.query(
+        "delete from public.thread_card_extractions where id = $1::uuid",
+        [jobId]
+      );
+    }
   }
+};
+
+const verifyPublicInteractionsIngress = async () => {
+  const bases = [];
+  const envBase = process.env.DISCORD_INTERACTIONS_PUBLIC_URL?.trim();
+  if (envBase) {
+    bases.push({ source: "env", base: envBase });
+  }
+
+  const stateBase = await readCurrentTunnelUrl();
+  if (stateBase && !bases.some((candidate) => candidate.base === stateBase)) {
+    bases.push({ source: "dev-stack", base: stateBase });
+  }
+
+  if (bases.length === 0) {
+    warn(
+      "discord-public",
+      "No public ingress URL is configured (set DISCORD_INTERACTIONS_PUBLIC_URL or start dev stack tunnel)."
+    );
+    return;
+  }
+
+  const maxAttempts = 5;
+  const delayMs = 3000;
+  const failures = [];
+
+  for (const candidate of bases) {
+    const url = candidate.base.endsWith("/")
+      ? `${candidate.base}interactions`
+      : `${candidate.base}/interactions`;
+
+    let lastResult = "no response";
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetchWithTimeout(
+          url,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}"
+          },
+          6000
+        );
+
+        if (response.status === 401 || response.status === 400 || response.status === 200) {
+          pass(
+            "discord-public",
+            `Public interactions ingress (${candidate.source}) responded with HTTP ${response.status} (attempt ${attempt}/${maxAttempts}).`
+          );
+          return;
+        }
+
+        lastResult = `HTTP ${response.status}`;
+      } catch (error) {
+        lastResult = error instanceof Error ? error.message : String(error);
+      }
+
+      if (attempt < maxAttempts) {
+        await sleep(delayMs);
+      }
+    }
+
+    failures.push(`${candidate.source}=${candidate.base} -> ${lastResult}`);
+  }
+
+  warn(
+    "discord-public",
+    `Public interactions ingress probe failed after ${maxAttempts} attempts per candidate: ${failures.join(
+      "; "
+    )}`
+  );
 };
 
 const run = async () => {
@@ -356,6 +599,11 @@ const run = async () => {
       const probeRow = await verifyM2DatabaseState(client);
       if (probeRow && internalToken) {
         await verifyM2CommandBridge({
+          client,
+          token: internalToken,
+          probeRow
+        });
+        await verifyM4ThreadToCardBridge({
           client,
           token: internalToken,
           probeRow

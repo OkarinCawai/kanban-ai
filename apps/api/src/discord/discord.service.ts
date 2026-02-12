@@ -11,7 +11,12 @@ import {
   discordMyTasksInputSchema,
   discordCardCreateInputSchema,
   discordCardMoveInputSchema,
-  discordCardSummarizeInputSchema
+  discordCardSummarizeInputSchema,
+  discordThreadToCardConfirmInputSchema,
+  discordThreadToCardConfirmSchema,
+  discordThreadToCardInputSchema,
+  discordThreadToCardStatusInputSchema,
+  discordThreadToCardStatusSchema
 } from "@kanban/contracts";
 import type { Role } from "@kanban/contracts";
 import type { RequestContext } from "@kanban/core";
@@ -241,6 +246,65 @@ export class DiscordCommandService {
     const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
     const status = await this.aiService.getAskBoardResult(resolved.context, parsed.data.jobId);
     return discordAskBoardStatusSchema.parse(status);
+  }
+
+  async threadToCard(discordUserId: string, input: unknown) {
+    const parsed = discordThreadToCardInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    if (!resolved.defaultListId) {
+      throw new BadRequestException("No default list is configured for this channel.");
+    }
+
+    const accepted = await this.aiService.queueThreadToCard(resolved.context, {
+      boardId: resolved.boardId,
+      listId: resolved.defaultListId,
+      sourceGuildId: parsed.data.guildId,
+      sourceChannelId: parsed.data.channelId,
+      sourceThreadId: parsed.data.threadId,
+      sourceThreadName: parsed.data.threadName,
+      participantDiscordUserIds: parsed.data.participantDiscordUserIds ?? [],
+      transcript: parsed.data.transcript
+    });
+
+    return discordAiJobAcceptedSchema.parse(accepted);
+  }
+
+  async threadToCardStatus(discordUserId: string, input: unknown) {
+    const parsed = discordThreadToCardStatusInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const status = await this.aiService.getThreadToCardResult(resolved.context, parsed.data.jobId);
+    return discordThreadToCardStatusSchema.parse(status);
+  }
+
+  async threadToCardConfirm(discordUserId: string, input: unknown) {
+    const parsed = discordThreadToCardConfirmInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const confirmed = await this.aiService.confirmThreadToCard(
+      resolved.context,
+      parsed.data.jobId,
+      {
+        title: parsed.data.title,
+        description: parsed.data.description
+      }
+    );
+
+    return discordThreadToCardConfirmSchema.parse({
+      jobId: parsed.data.jobId,
+      created: confirmed.created,
+      card: confirmed.card
+    });
   }
 
   private async resolveContext(

@@ -7,6 +7,9 @@ Use this checklist before calling Milestone 2 fully live.
 Preferred (single command, includes Cloudflare tunnel reboot on each restart):
 
 - `npm run dev:restart`
+  - Generates a fresh quick tunnel URL each run.
+  - Auto-updates `.env` `DISCORD_INTERACTIONS_PUBLIC_URL` to that URL.
+  - Prints the endpoint you should configure in Discord Developer Portal: `<url>/interactions`.
 
 Useful stack commands:
 
@@ -43,6 +46,7 @@ Expected summary:
 
 - `fail=0`
 - `pass` checks for web/api/discord/worker and M2 bridge commands.
+- When `GEMINI_API_KEY` is set, `verify:live` also validates M4 thread-to-card queue -> completion -> confirm idempotency.
 
 ## 3) Verify public Discord ingress
 

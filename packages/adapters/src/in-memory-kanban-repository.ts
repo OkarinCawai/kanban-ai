@@ -4,7 +4,8 @@ import type {
   Card,
   CardSummaryResult,
   KanbanList,
-  OutboxEvent
+  OutboxEvent,
+  ThreadToCardResult
 } from "@kanban/contracts";
 import {
   ConflictError,
@@ -23,6 +24,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
   private cards = new Map<string, Card>();
   private cardSummaries = new Map<string, CardSummaryResult>();
   private askBoardResults = new Map<string, AskBoardResult>();
+  private threadToCardResults = new Map<string, ThreadToCardResult>();
   private outboxEvents: OutboxEvent[] = [];
 
   getOutboxEvents(): OutboxEvent[] {
@@ -47,6 +49,10 @@ export class InMemoryKanbanRepository implements KanbanRepository {
 
   seedAskBoardResult(result: AskBoardResult): void {
     this.askBoardResults.set(result.jobId, clone(result));
+  }
+
+  seedThreadToCardResult(result: ThreadToCardResult): void {
+    this.threadToCardResults.set(result.jobId, clone(result));
   }
 
   async findBoardById(boardId: string): Promise<Board | null> {
@@ -74,6 +80,11 @@ export class InMemoryKanbanRepository implements KanbanRepository {
     return result ? clone(result) : null;
   }
 
+  async findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null> {
+    const result = this.threadToCardResults.get(jobId);
+    return result ? clone(result) : null;
+  }
+
   async listListsByBoardId(boardId: string): Promise<KanbanList[]> {
     return Array.from(this.lists.values())
       .filter((list) => list.boardId === boardId)
@@ -97,6 +108,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       cards: new Map(this.cards),
       cardSummaries: new Map(this.cardSummaries),
       askBoardResults: new Map(this.askBoardResults),
+      threadToCardResults: new Map(this.threadToCardResults),
       outboxEvents: [...this.outboxEvents]
     };
 
@@ -259,6 +271,32 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           })
         );
       },
+      upsertThreadCardExtraction: async (input) => {
+        const existing = this.threadToCardResults.get(input.id);
+        const next: ThreadToCardResult = {
+          jobId: input.id,
+          boardId: input.boardId,
+          listId: input.listId,
+          requesterUserId: input.requesterUserId,
+          sourceGuildId: input.sourceGuildId,
+          sourceChannelId: input.sourceChannelId,
+          sourceThreadId: input.sourceThreadId,
+          sourceThreadName: input.sourceThreadName,
+          participantDiscordUserIds: input.participantDiscordUserIds ?? [],
+          transcript: input.transcript,
+          status: input.status,
+          draft: input.draftJson,
+          createdCardId: input.createdCardId,
+          sourceEventId: input.sourceEventId,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        };
+
+        this.threadToCardResults.set(
+          input.id,
+          clone(existing ? { ...existing, ...next } : next)
+        );
+      },
       appendOutbox: async (event) => {
         this.outboxEvents.push(clone(event));
       }
@@ -272,6 +310,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       this.cards = snapshot.cards;
       this.cardSummaries = snapshot.cardSummaries;
       this.askBoardResults = snapshot.askBoardResults;
+      this.threadToCardResults = snapshot.threadToCardResults;
       this.outboxEvents = snapshot.outboxEvents;
       throw error;
     }

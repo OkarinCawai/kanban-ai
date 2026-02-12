@@ -1,305 +1,300 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Kanban Signal Room</title>
-    <link rel="stylesheet" href="./styles.css" />
-  </head>
-  <body>
-    <a class="skip-link" href="#boardColumns">Skip to board canvas</a>
-    <div id="srAnnouncer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
-    <main class="ops-shell" id="mainContent">
-      <header class="signal-bar">
-        <div class="signal-copy">
-          <p class="eyebrow">KANBAN AI SIGNAL ROOM</p>
-          <h1>Mission Control: Board + Async AI</h1>
-          <p class="deck">
-            Distinctive execution cockpit for board operations and grounded LLM evaluation loops.
-          </p>
-        </div>
-        <div class="signal-actions">
-          <button
-            id="toggleSettingsBtn"
-            type="button"
-            aria-controls="settingsShell"
-            aria-expanded="true"
-          >
-            Settings
-          </button>
-          <button
-            id="toggleDiagnosticsBtn"
-            type="button"
-            aria-controls="diagnosticsShell"
-            aria-expanded="false"
-          >
-            Diagnostics
-          </button>
-          <span class="badge badge-live">M7 active</span>
-        </div>
-      </header>
 
-      <section class="settings-grid" id="settingsShell" aria-label="Connection and auth settings">
-        <article class="panel">
-          <h2>Connection</h2>
-          <div class="fields">
-            <label>
-              API URL
-              <input id="apiUrl" value="http://localhost:3001" />
-            </label>
-            <label>
-              User UUID
-              <input id="userId" value="2d6a7ae9-c0f0-4e9f-a645-c45baed9a2f5" />
-            </label>
-            <label>
-              Org UUID
-              <input id="orgId" value="79de6cc2-e8fd-457e-bdc7-0fb591ff53d6" />
-            </label>
-            <label>
-              Role
-              <select id="role">
-                <option value="viewer">viewer</option>
-                <option value="editor" selected>editor</option>
-                <option value="admin">admin</option>
-              </select>
-            </label>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Kanban Signal Room</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <a class="skip-link" href="#boardColumns">Skip to board canvas</a>
+  <div id="srAnnouncer" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <main class="ops-shell" id="mainContent">
+    <header class="signal-bar">
+      <div class="signal-copy">
+        <p class="eyebrow">KANBAN AI SIGNAL ROOM</p>
+        <h1>Mission Control: Board + Async AI</h1>
+        <p class="deck">
+          Distinctive execution cockpit for board operations and grounded LLM evaluation loops.
+        </p>
+      </div>
+      <div class="signal-actions">
+        <button id="toggleSettingsBtn" type="button" aria-controls="settingsShell" aria-expanded="true">
+          Settings
+        </button>
+        <button id="toggleDiagnosticsBtn" type="button" aria-controls="diagnosticsShell" aria-expanded="false">
+          Diagnostics
+        </button>
+        <span class="badge badge-live">M7 active</span>
+      </div>
+    </header>
+
+    <section class="settings-grid" id="settingsShell" aria-label="Connection and auth settings">
+      <article class="panel">
+        <h2>Connection</h2>
+        <div class="fields">
+          <label>
+            API URL
+            <input id="apiUrl" value="http://localhost:3001" />
+          </label>
+          <label>
+            User UUID
+            <input id="userId" value="2d6a7ae9-c0f0-4e9f-a645-c45baed9a2f5" />
+          </label>
+          <label>
+            Org UUID
+            <input id="orgId" value="79de6cc2-e8fd-457e-bdc7-0fb591ff53d6" />
+          </label>
+          <label>
+            Role
+            <select id="role">
+              <option value="viewer">viewer</option>
+              <option value="editor" selected>editor</option>
+              <option value="admin">admin</option>
+            </select>
+          </label>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>Supabase Auth (Discord)</h2>
+        <p class="meta">
+          Optional: when signed in, API requests use
+          <code>Authorization: Bearer &lt;access_token&gt;</code>.
+        </p>
+        <div class="fields">
+          <label>
+            Supabase URL
+            <input id="supabaseUrl" placeholder="https://your-project-ref.supabase.co" />
+          </label>
+          <label>
+            Supabase Publishable Key
+            <input id="supabaseKey" placeholder="sb_publishable_..." />
+          </label>
+        </div>
+        <div class="inline top-gap">
+          <button id="loginDiscordBtn">Sign in with Discord</button>
+          <button id="logoutBtn" type="button">Logout</button>
+          <button id="resetAuthBtn" type="button">Reset Auth</button>
+        </div>
+        <p class="meta">Auth User ID: <span id="authUserId">Not signed in</span></p>
+      </article>
+
+      <article class="panel">
+        <h2>Discord Mapping (M2)</h2>
+        <p class="meta">
+          Map guild/channel to this org + board context for slash command operations.
+        </p>
+        <div class="fields">
+          <label>
+            Discord Guild ID
+            <input id="discordGuildId" placeholder="123456789012345678" />
+          </label>
+          <label>
+            Discord Channel ID
+            <input id="discordChannelId" placeholder="123456789012345678" />
+          </label>
+          <label>
+            Default List ID (UUID)
+            <input id="discordDefaultListId" placeholder="uuid (optional)" />
+          </label>
+        </div>
+        <div class="inline top-gap">
+          <button id="upsertDiscordGuildBtn" type="button">Upsert Guild</button>
+          <button id="upsertDiscordChannelMappingBtn" type="button">Upsert Channel Mapping</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <section class="board-zone">
+        <article class="panel board-controls">
+          <h2>Board</h2>
+          <div class="inline">
+            <input id="boardTitle" placeholder="Board title" value="Roadmap" />
+            <button id="createBoardBtn">Create Board</button>
+          </div>
+          <p class="meta">Board ID: <span id="boardId">Not created</span></p>
+        </article>
+
+        <article class="panel list-controls">
+          <h2>Lists</h2>
+          <div class="inline">
+            <input id="listTitle" placeholder="List title" value="Todo" />
+            <button id="createListBtn">Add List</button>
           </div>
         </article>
 
-        <article class="panel">
-          <h2>Supabase Auth (Discord)</h2>
-          <p class="meta">
-            Optional: when signed in, API requests use
-            <code>Authorization: Bearer &lt;access_token&gt;</code>.
+        <article class="panel board-canvas">
+          <div class="section-head">
+            <h2>Board Canvas</h2>
+            <p class="meta">Drag cards across lists; moves apply optimistic feedback.</p>
+          </div>
+          <p class="board-help">
+            Keyboard on focused card: <kbd>S</kbd> summarize, <kbd>[</kbd> move left, <kbd>]</kbd> move right,
+            <kbd>E</kbd> open details.
           </p>
-          <div class="fields">
-            <label>
-              Supabase URL
-              <input id="supabaseUrl" placeholder="https://your-project-ref.supabase.co" />
-            </label>
-            <label>
-              Supabase Publishable Key
-              <input id="supabaseKey" placeholder="sb_publishable_..." />
-            </label>
-          </div>
-          <div class="inline top-gap">
-            <button id="loginDiscordBtn">Sign in with Discord</button>
-            <button id="logoutBtn" type="button">Logout</button>
-            <button id="resetAuthBtn" type="button">Reset Auth</button>
-          </div>
-          <p class="meta">Auth User ID: <span id="authUserId">Not signed in</span></p>
-        </article>
-
-        <article class="panel">
-          <h2>Discord Mapping (M2)</h2>
-          <p class="meta">
-            Map guild/channel to this org + board context for slash command operations.
-          </p>
-          <div class="fields">
-            <label>
-              Discord Guild ID
-              <input id="discordGuildId" placeholder="123456789012345678" />
-            </label>
-            <label>
-              Discord Channel ID
-              <input id="discordChannelId" placeholder="123456789012345678" />
-            </label>
-            <label>
-              Default List ID (UUID)
-              <input id="discordDefaultListId" placeholder="uuid (optional)" />
-            </label>
-          </div>
-          <div class="inline top-gap">
-            <button id="upsertDiscordGuildBtn" type="button">Upsert Guild</button>
-            <button id="upsertDiscordChannelMappingBtn" type="button">Upsert Channel Mapping</button>
-          </div>
+          <section class="board" id="boardColumns" role="list" aria-label="Kanban board columns"></section>
         </article>
       </section>
 
-      <section class="workspace">
-        <section class="board-zone">
-          <article class="panel board-controls">
-            <h2>Board</h2>
-            <div class="inline">
-              <input id="boardTitle" placeholder="Board title" value="Roadmap" />
-              <button id="createBoardBtn">Create Board</button>
-            </div>
-            <p class="meta">Board ID: <span id="boardId">Not created</span></p>
-          </article>
-
-          <article class="panel list-controls">
-            <h2>Lists</h2>
-            <div class="inline">
-              <input id="listTitle" placeholder="List title" value="Todo" />
-              <button id="createListBtn">Add List</button>
-            </div>
-          </article>
-
-          <article class="panel board-canvas">
-            <div class="section-head">
-              <h2>Board Canvas</h2>
-              <p class="meta">Drag cards across lists; moves apply optimistic feedback.</p>
-            </div>
-            <p class="board-help">
-              Keyboard on focused card: <kbd>S</kbd> summarize, <kbd>[</kbd> move left, <kbd>]</kbd> move right, <kbd>E</kbd> open details.
+      <aside class="dock-zone">
+        <article class="panel ai-dock">
+          <h2>Ask-the-Board</h2>
+          <div class="fields">
+            <label>
+              Question
+              <input id="askBoardQuestion" placeholder="What is blocked this week?" />
+            </label>
+            <label>
+              topK
+              <input id="askBoardTopK" type="number" min="1" max="20" value="6" />
+            </label>
+          </div>
+          <div class="inline top-gap">
+            <button id="askBoardBtn" type="button">Ask Board</button>
+            <button id="copyEvalBundleBtn" type="button">Copy Eval Bundle</button>
+          </div>
+          <p class="meta">
+            Status:
+            <span id="askBoardStatus" class="status-chip status-idle">idle</span>
+          </p>
+          <p class="meta">Last update: <span id="askBoardLastUpdated">not started</span></p>
+          <section class="ask-result" aria-live="polite">
+            <h3>Answer</h3>
+            <p id="askBoardAnswer" class="answer-text">
+              Ask a question to start an async retrieval + grounding job.
             </p>
-            <section class="board" id="boardColumns" role="list" aria-label="Kanban board columns"></section>
-          </article>
-        </section>
+            <h3>References</h3>
+            <ul id="askBoardReferences" class="reference-list"></ul>
+          </section>
+        </article>
 
-        <aside class="dock-zone">
-          <article class="panel ai-dock">
-            <h2>Ask-the-Board</h2>
-            <div class="fields">
+        <article class="panel">
+          <h2>Ask Job Tracker</h2>
+          <ul id="askJobTimeline" class="job-timeline" aria-live="polite"></ul>
+        </article>
+
+        <article class="panel card-detail-panel">
+          <h2>Card Detail Editor (M8)</h2>
+          <p class="meta">
+            Selected card: <span id="detailCardId">none</span>
+          </p>
+          <p class="meta" id="detailCardHint">
+            Select a card from the board to edit description, assignees, dates, location, labels, and checklist.
+          </p>
+          <form id="cardDetailForm" class="detail-form">
+            <label>
+              Title
+              <input id="detailTitle" placeholder="Card title" />
+            </label>
+            <label>
+              Description
+              <textarea id="detailDescription" rows="4" placeholder="Markdown-safe text"></textarea>
+            </label>
+            <label>
+              Assignee UUIDs (comma separated)
+              <input id="detailAssignees" placeholder="uuid-1, uuid-2" />
+            </label>
+            <div class="detail-grid">
               <label>
-                Question
-                <input id="askBoardQuestion" placeholder="What is blocked this week?" />
+                Start At
+                <input id="detailStartAt" type="datetime-local" />
               </label>
               <label>
-                topK
-                <input id="askBoardTopK" type="number" min="1" max="20" value="6" />
+                Due At
+                <input id="detailDueAt" type="datetime-local" />
+              </label>
+            </div>
+            <label>
+              Location Text
+              <input id="detailLocationText" placeholder="Office, room, address" />
+            </label>
+            <label>
+              Location URL
+              <input id="detailLocationUrl" placeholder="https://maps.example.com/..." />
+            </label>
+            <label>
+              Labels (name:color comma separated)
+              <input id="detailLabels" placeholder="urgent:red, backend:blue" />
+            </label>
+            <label>
+              Checklist (one item per line, prefix <code>[x]</code> for done)
+              <textarea id="detailChecklist" rows="5"
+                placeholder="[x] Draft spec&#10;Review PR&#10;Ship to staging"></textarea>
+            </label>
+            <div class="detail-grid">
+              <label>
+                Comment Count
+                <input id="detailCommentCount" type="number" min="0" step="1" value="0" />
+              </label>
+              <label>
+                Attachment Count
+                <input id="detailAttachmentCount" type="number" min="0" step="1" value="0" />
               </label>
             </div>
             <div class="inline top-gap">
-              <button id="askBoardBtn" type="button">Ask Board</button>
-              <button id="copyEvalBundleBtn" type="button">Copy Eval Bundle</button>
+              <button id="saveCardDetailsBtn" type="submit">Save Details</button>
+              <button id="clearCardSelectionBtn" type="button">Clear Selection</button>
             </div>
-            <p class="meta">
-              Status:
-              <span id="askBoardStatus" class="status-chip status-idle">idle</span>
-            </p>
-            <p class="meta">Last update: <span id="askBoardLastUpdated">not started</span></p>
-            <section class="ask-result" aria-live="polite">
-              <h3>Answer</h3>
-              <p id="askBoardAnswer" class="answer-text">
-                Ask a question to start an async retrieval + grounding job.
-              </p>
-              <h3>References</h3>
-              <ul id="askBoardReferences" class="reference-list"></ul>
-            </section>
-          </article>
-
-          <article class="panel">
-            <h2>Ask Job Tracker</h2>
-            <ul id="askJobTimeline" class="job-timeline" aria-live="polite"></ul>
-          </article>
-
-          <article class="panel card-detail-panel">
-            <h2>Card Detail Editor (M8)</h2>
-            <p class="meta">
-              Selected card: <span id="detailCardId">none</span>
-            </p>
-            <p class="meta" id="detailCardHint">
-              Select a card from the board to edit description, assignees, dates, location, labels, and checklist.
-            </p>
-            <form id="cardDetailForm" class="detail-form">
-              <label>
-                Title
-                <input id="detailTitle" placeholder="Card title" />
-              </label>
-              <label>
-                Description
-                <textarea id="detailDescription" rows="4" placeholder="Markdown-safe text"></textarea>
-              </label>
-              <label>
-                Assignee UUIDs (comma separated)
-                <input id="detailAssignees" placeholder="uuid-1, uuid-2" />
-              </label>
-              <div class="detail-grid">
-                <label>
-                  Start At
-                  <input id="detailStartAt" type="datetime-local" />
-                </label>
-                <label>
-                  Due At
-                  <input id="detailDueAt" type="datetime-local" />
-                </label>
-              </div>
-              <label>
-                Location Text
-                <input id="detailLocationText" placeholder="Office, room, address" />
-              </label>
-              <label>
-                Location URL
-                <input id="detailLocationUrl" placeholder="https://maps.example.com/..." />
-              </label>
-              <label>
-                Labels (name:color comma separated)
-                <input id="detailLabels" placeholder="urgent:red, backend:blue" />
-              </label>
-              <label>
-                Checklist (one item per line, prefix <code>[x]</code> for done)
-                <textarea id="detailChecklist" rows="5" placeholder="[x] Draft spec&#10;Review PR&#10;Ship to staging"></textarea>
-              </label>
-              <div class="detail-grid">
-                <label>
-                  Comment Count
-                  <input id="detailCommentCount" type="number" min="0" step="1" value="0" />
-                </label>
-                <label>
-                  Attachment Count
-                  <input id="detailAttachmentCount" type="number" min="0" step="1" value="0" />
-                </label>
-              </div>
-              <div class="inline top-gap">
-                <button id="saveCardDetailsBtn" type="submit">Save Details</button>
-                <button id="clearCardSelectionBtn" type="button">Clear Selection</button>
-              </div>
-            </form>
-          </article>
-        </aside>
-      </section>
-
-      <section id="diagnosticsShell" class="diagnostics-shell is-collapsed">
-        <article class="panel">
-          <h2>Request Summary</h2>
-          <pre id="diagnosticsSummary"></pre>
+          </form>
         </article>
-        <article class="panel">
-          <h2>Polling Events</h2>
-          <pre id="pollDiagnostics"></pre>
-        </article>
-        <article class="panel">
-          <h2>Activity Log</h2>
-          <pre id="log" role="log" aria-live="polite"></pre>
-        </article>
-      </section>
-    </main>
+      </aside>
+    </section>
 
-    <template id="listTemplate">
-      <article class="column">
-        <header>
-          <h3 class="list-title"></h3>
-        </header>
-        <div class="cards"></div>
-        <div class="inline">
-          <input class="card-title-input" placeholder="Card title" />
-          <button class="add-card-btn">Add Card</button>
-        </div>
+    <section id="diagnosticsShell" class="diagnostics-shell is-collapsed">
+      <article class="panel">
+        <h2>Request Summary</h2>
+        <pre id="diagnosticsSummary"></pre>
       </article>
-    </template>
+      <article class="panel">
+        <h2>Polling Events</h2>
+        <pre id="pollDiagnostics"></pre>
+      </article>
+      <article class="panel">
+        <h2>Activity Log</h2>
+        <pre id="log" role="log" aria-live="polite"></pre>
+      </article>
+    </section>
+  </main>
 
-    <template id="cardTemplate">
-      <div class="card" draggable="true">
-        <div class="card-head">
-          <div class="card-title"></div>
-          <div class="card-meta"></div>
-        </div>
-        <div class="card-badges" aria-label="Card metadata badges"></div>
-        <div class="card-status-row">
-          <span class="status-chip card-summary-status status-idle">summary idle</span>
-          <span class="card-summary-updated-at">no summary yet</span>
-        </div>
-        <div class="card-actions">
-          <button class="edit-card-btn" type="button">Details</button>
-          <button class="summarize-card-btn" type="button">Summarize</button>
-          <button class="move-prev-btn" type="button">Move Left</button>
-          <button class="move-next-btn" type="button">Move Right</button>
-        </div>
-        <div class="card-summary"></div>
+  <template id="listTemplate">
+    <article class="column">
+      <header>
+        <h3 class="list-title"></h3>
+      </header>
+      <div class="cards"></div>
+      <div class="inline">
+        <input class="card-title-input" placeholder="Card title" />
+        <button class="add-card-btn">Add Card</button>
       </div>
-    </template>
+    </article>
+  </template>
 
-    <script type="module" src="./app.js"></script>
-  </body>
+  <template id="cardTemplate">
+    <div class="card" draggable="true">
+      <div class="card-head">
+        <div class="card-title"></div>
+        <div class="card-meta"></div>
+      </div>
+      <div class="card-badges" aria-label="Card metadata badges"></div>
+      <div class="card-status-row">
+        <span class="status-chip card-summary-status status-idle">summary idle</span>
+        <span class="card-summary-updated-at">no summary yet</span>
+      </div>
+      <div class="card-actions">
+        <button class="edit-card-btn" type="button">Details</button>
+        <button class="summarize-card-btn" type="button">Summarize</button>
+        <button class="move-prev-btn" type="button">Move Left</button>
+        <button class="move-next-btn" type="button">Move Right</button>
+      </div>
+      <div class="card-summary"></div>
+    </div>
+  </template>
+
+  <script type="module" src="./app.js"></script>
+</body>
+
 </html>
