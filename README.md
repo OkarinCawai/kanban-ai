@@ -1,4 +1,4 @@
-# Kanban AI (Trello-like, Discord-first)
+# Kanban AI (Discord-first)
 
 Trello-style Kanban with:
 - A web board UI for lists/cards and async AI actions.
