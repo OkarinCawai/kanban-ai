@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import {
   aiAskBoardRequestedPayloadSchema,
+  aiBoardBlueprintRequestedPayloadSchema,
   aiCardSummaryRequestedPayloadSchema,
   aiDailyStandupRequestedPayloadSchema,
   aiThreadToCardRequestedPayloadSchema,
@@ -12,6 +13,7 @@ import {
   hygieneDetectStuckRequestedPayloadSchema,
   roleSchema,
   type AiAskBoardRequestedPayload,
+  type AiBoardBlueprintRequestedPayload,
   type AiCardSummaryRequestedPayload,
   type AiDailyStandupRequestedPayload,
   type AiThreadToCardRequestedPayload,
@@ -47,6 +49,7 @@ import {
 const OUTBOX_TYPES = [
   "ai.card-summary.requested",
   "ai.ask-board.requested",
+  "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
@@ -58,6 +61,7 @@ const OUTBOX_TYPES = [
 const OUTBOX_TYPES_REQUIRING_GEMINI: ReadonlySet<(typeof OUTBOX_TYPES)[number]> = new Set([
   "ai.card-summary.requested",
   "ai.ask-board.requested",
+  "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
@@ -134,6 +138,16 @@ type AskBoardRequestRow = {
   status: string;
   answer_json: unknown;
   source_event_id: string | null;
+};
+
+type BoardGenerationRequestRow = {
+  id: string;
+  org_id: string;
+  requester_user_id: string;
+  prompt: string;
+  status: string;
+  blueprint_json: unknown;
+  created_board_id: string | null;
 };
 
 type RetrievedChunkRow = {
@@ -234,6 +248,10 @@ type ParsedOutboxEvent =
   | {
       type: "ai.ask-board.requested";
       payload: AiAskBoardRequestedPayload;
+    }
+  | {
+      type: "ai.board-blueprint.requested";
+      payload: AiBoardBlueprintRequestedPayload;
     }
   | {
       type: "ai.thread-to-card.requested";
@@ -517,6 +535,23 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (event.type === "ai.board-blueprint.requested") {
+      await client.query(
+        `
+          update public.board_generation_requests
+          set
+            status = 'failed',
+            blueprint_json = null,
+            failure_reason = $3,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [event.payload.jobId, row.org_id, truncated]
+      );
+      return;
+    }
+
     if (event.type === "ai.thread-to-card.requested") {
       await client.query(
         `
@@ -632,6 +667,13 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (row.type === "ai.board-blueprint.requested") {
+      return {
+        type: row.type,
+        payload: aiBoardBlueprintRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
     if (row.type === "ai.thread-to-card.requested") {
       return {
         type: row.type,
@@ -689,6 +731,11 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
 
     if (event.type === "ai.ask-board.requested") {
       await this.executeAskBoard(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "ai.board-blueprint.requested") {
+      await this.executeBoardBlueprint(client, row, event.payload);
       return;
     }
 
@@ -897,6 +944,117 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
             and org_id = $2::uuid
         `,
         [payload.jobId, row.org_id]
+      );
+
+      throw error;
+    }
+  }
+
+  private async executeBoardBlueprint(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiBoardBlueprintRequestedPayload
+  ): Promise<void> {
+    if (row.board_id) {
+      throw new Error(`Outbox board_id must be null for board blueprint event ${row.id}.`);
+    }
+
+    const requestResult = await client.query<BoardGenerationRequestRow>(
+      `
+        select
+          id,
+          org_id,
+          requester_user_id,
+          prompt,
+          status,
+          blueprint_json,
+          created_board_id
+        from public.board_generation_requests
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.jobId, row.org_id]
+    );
+
+    const requestRow = requestResult.rows[0];
+    if (!requestRow) {
+      throw new Error(`Board generation request ${payload.jobId} was not found.`);
+    }
+
+    if (requestRow.requester_user_id !== payload.actorUserId) {
+      throw new Error(
+        `Board generation request ${payload.jobId} has mismatched requester_user_id.`
+      );
+    }
+
+    if (requestRow.prompt !== payload.prompt) {
+      throw new Error(`Board generation request ${payload.jobId} has mismatched prompt.`);
+    }
+
+    if (requestRow.created_board_id) {
+      return;
+    }
+
+    if (requestRow.status === "completed" && requestRow.blueprint_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.board_generation_requests
+        set
+          status = 'processing',
+          blueprint_json = null,
+          failure_reason = null,
+          updated_at = now()
+        where id = $1::uuid
+          and org_id = $2::uuid
+      `,
+      [payload.jobId, row.org_id]
+    );
+
+    if (!this.geminiClient) {
+      throw new Error("Gemini client is not initialized.");
+    }
+
+    try {
+      const blueprint = await this.geminiClient.generateBoardBlueprint({
+        prompt: payload.prompt
+      });
+
+      await client.query(
+        `
+          update public.board_generation_requests
+          set
+            status = 'completed',
+            blueprint_json = $3::jsonb,
+            source_event_id = $4::uuid,
+            failure_reason = null,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.jobId, row.org_id, JSON.stringify(blueprint), row.id]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.board_generation_requests
+          set
+            status = 'failed',
+            blueprint_json = null,
+            failure_reason = $3,
+            source_event_id = $4::uuid,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.jobId, row.org_id, failureReason, row.id]
       );
 
       throw error;

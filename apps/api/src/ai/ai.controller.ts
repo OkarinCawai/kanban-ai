@@ -44,6 +44,15 @@ export class AiController {
     return this.aiService.queueAskBoard(context, body);
   }
 
+  @Post("ai/board-blueprint")
+  async queueBoardBlueprint(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Body() body: unknown
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.queueBoardBlueprint(context, body);
+  }
+
   @Post("boards/:boardId/weekly-recap")
   async queueWeeklyRecap(
     @Headers() headers: Record<string, string | string[] | undefined>,
@@ -89,6 +98,25 @@ export class AiController {
   ) {
     const context = await toRequestContext(headers);
     return this.aiService.getAskBoardResult(context, jobId);
+  }
+
+  @Get("ai/board-blueprint/:jobId")
+  async getBoardBlueprintResult(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("jobId", new ParseUUIDPipe()) jobId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.getBoardBlueprintResult(context, jobId);
+  }
+
+  @Post("ai/board-blueprint/:jobId/confirm")
+  async confirmBoardBlueprint(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("jobId", new ParseUUIDPipe()) jobId: string,
+    @Body() body: unknown
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.confirmBoardBlueprint(context, jobId, body);
   }
 
   @Get("boards/:boardId/weekly-recap")

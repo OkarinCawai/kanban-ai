@@ -1,9 +1,11 @@
 import type {
   AskBoardResult,
   Board,
+  BoardBlueprintResult,
   BoardStuckReportResult,
   Card,
   CardCoverResult,
+  CardSearchHit,
   CardSummaryResult,
   DailyStandupResult,
   KanbanList,
@@ -29,6 +31,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
   private cardSummaries = new Map<string, CardSummaryResult>();
   private cardCovers = new Map<string, CardCoverResult>();
   private askBoardResults = new Map<string, AskBoardResult>();
+  private boardBlueprintResults = new Map<string, BoardBlueprintResult>();
   private weeklyRecaps = new Map<string, WeeklyRecapResult>();
   private dailyStandups = new Map<string, DailyStandupResult>();
   private stuckReports = new Map<string, BoardStuckReportResult>();
@@ -61,6 +64,10 @@ export class InMemoryKanbanRepository implements KanbanRepository {
 
   seedAskBoardResult(result: AskBoardResult): void {
     this.askBoardResults.set(result.jobId, clone(result));
+  }
+
+  seedBoardBlueprintResult(result: BoardBlueprintResult): void {
+    this.boardBlueprintResults.set(result.jobId, clone(result));
   }
 
   seedWeeklyRecap(result: WeeklyRecapResult): void {
@@ -109,6 +116,11 @@ export class InMemoryKanbanRepository implements KanbanRepository {
     return result ? clone(result) : null;
   }
 
+  async findBoardBlueprintResultByJobId(jobId: string): Promise<BoardBlueprintResult | null> {
+    const result = this.boardBlueprintResults.get(jobId);
+    return result ? clone(result) : null;
+  }
+
   async findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null> {
     const recap = this.weeklyRecaps.get(boardId);
     return recap ? clone(recap) : null;
@@ -143,6 +155,57 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       .map((card) => clone(card));
   }
 
+  async searchCardsByBoardId(
+    boardId: string,
+    query: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<CardSearchHit[]> {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    const normalizedQuery = trimmed.toLowerCase();
+    const limit = options?.limit ?? 20;
+    const offset = options?.offset ?? 0;
+
+    const candidates = Array.from(this.cards.values()).filter((card) => card.boardId === boardId);
+
+    const hits: CardSearchHit[] = [];
+    for (const card of candidates) {
+      const blob = [
+        card.title,
+        card.description ?? "",
+        card.locationText ?? "",
+        ...(card.labels ?? []).map((label) => label.name)
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (!blob.includes(normalizedQuery)) {
+        continue;
+      }
+
+      const snippetSource = (card.description ?? card.locationText ?? "").trim();
+      const snippet =
+        snippetSource.length > 0
+          ? snippetSource.replace(/\s+/g, " ").slice(0, 200)
+          : undefined;
+
+      hits.push({
+        cardId: card.id,
+        listId: card.listId,
+        title: card.title,
+        snippet,
+        updatedAt: card.updatedAt
+      });
+    }
+
+    hits.sort((a, b) => new Date(b.updatedAt).valueOf() - new Date(a.updatedAt).valueOf());
+
+    return hits.slice(offset, offset + limit).map((hit) => clone(hit));
+  }
+
   async runInTransaction<T>(
     execute: (ctx: KanbanMutationContext) => Promise<T>
   ): Promise<T> {
@@ -153,6 +216,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       cardSummaries: new Map(this.cardSummaries),
       cardCovers: new Map(this.cardCovers),
       askBoardResults: new Map(this.askBoardResults),
+      boardBlueprintResults: new Map(this.boardBlueprintResults),
       weeklyRecaps: new Map(this.weeklyRecaps),
       dailyStandups: new Map(this.dailyStandups),
       stuckReports: new Map(this.stuckReports),
@@ -319,6 +383,26 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           })
         );
       },
+      upsertBoardBlueprintRequest: async (input) => {
+        const existing = this.boardBlueprintResults.get(input.id);
+        const next: BoardBlueprintResult = {
+          jobId: input.id,
+          orgId: input.orgId,
+          requesterUserId: input.requesterUserId,
+          prompt: input.prompt,
+          status: input.status,
+          blueprint: input.blueprintJson,
+          createdBoardId: input.createdBoardId,
+          sourceEventId: input.sourceEventId,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        };
+
+        this.boardBlueprintResults.set(
+          input.id,
+          clone(existing ? { ...existing, ...next } : next)
+        );
+      },
       upsertCardCover: async (input) => {
         const existing = this.cardCovers.get(input.cardId);
         const next: CardCoverResult = {
@@ -430,6 +514,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       this.cardSummaries = snapshot.cardSummaries;
       this.cardCovers = snapshot.cardCovers;
       this.askBoardResults = snapshot.askBoardResults;
+      this.boardBlueprintResults = snapshot.boardBlueprintResults;
       this.weeklyRecaps = snapshot.weeklyRecaps;
       this.dailyStandups = snapshot.dailyStandups;
       this.stuckReports = snapshot.stuckReports;

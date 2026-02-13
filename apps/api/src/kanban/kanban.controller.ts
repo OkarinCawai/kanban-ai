@@ -5,7 +5,8 @@ import {
   Headers,
   Param,
   Patch,
-  Post
+  Post,
+  Query
 } from "@nestjs/common";
 
 import { toRequestContext } from "../security/request-context.js";
@@ -31,6 +32,34 @@ export class KanbanController {
   ) {
     const context = await toRequestContext(headers);
     return this.kanbanService.getBoard(context, boardId);
+  }
+
+  @Get("boards/:boardId/lists")
+  async listListsByBoardId(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("boardId") boardId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.kanbanService.listListsByBoardId(context, boardId);
+  }
+
+  @Get("boards/:boardId/cards")
+  async listCardsByBoardId(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("boardId") boardId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.kanbanService.listCardsByBoardId(context, boardId);
+  }
+
+  @Get("boards/:boardId/search")
+  async searchCards(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("boardId") boardId: string,
+    @Query() query: Record<string, unknown>
+  ) {
+    const context = await toRequestContext(headers);
+    return this.kanbanService.searchCards(context, boardId, query);
   }
 
   @Post("lists")

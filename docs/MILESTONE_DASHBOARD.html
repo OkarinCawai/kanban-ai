@@ -445,21 +445,23 @@
 		            "2026-02-12: Added eval runner (npm run eval:ask-ai) with seeded fixtures, grounding checks, denial checks, prompt-injection check, and Discord bridge parity."
 		          ]
 		        },
-		        {
-		          id: "M10",
-		          title: "Web React Migration",
-		          status: "planned",
-		          tasks: [
-		            { label: "Scaffold apps/web-react with Vite + React", done: false },
-		            { label: "Port board canvas to React with optimistic moves", done: false },
-		            { label: "Adopt TanStack Query + @hello-pangea/dnd", done: false },
-		            { label: "Incremental cutover with parity checklist + verify suite", done: false }
-		          ],
-		          updates: [
-		            "2026-02-12: Planned incremental migration: scaffold apps/web-react first, then cut over once parity is reached.",
-		            "2026-02-12: Keep contracts-first payloads; React becomes the UI foundation for later UX features."
-		          ]
-		        },
+			        {
+			          id: "M10",
+			          title: "Web React Migration",
+			          status: "completed",
+			          tasks: [
+			            { label: "Scaffold apps/web-react (React + TypeScript)", done: true },
+			            { label: "Port board canvas to React with optimistic moves", done: true },
+			            { label: "Adopt TanStack Query + @hello-pangea/dnd", done: true },
+			            { label: "Incremental cutover with parity checklist + verify suite", done: true }
+			          ],
+			          updates: [
+			            "2026-02-12: Planned incremental migration: scaffold apps/web-react first, then cut over once parity is reached.",
+			            "2026-02-12: Keep contracts-first payloads; React becomes the UI foundation for later UX features.",
+			            "2026-02-13: Scaffolded apps/web-react with React + TS (webpack build/dev), ported board flows + DnD + optimistic moves, and wired async AI surfaces + parity checklist.",
+			            "2026-02-13: Updated dev stack + live verification to optionally probe apps/web-react for incremental cutover."
+			          ]
+			        },
 		        {
 		          id: "M11",
 		          title: "Search + Discovery",

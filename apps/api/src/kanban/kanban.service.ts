@@ -6,6 +6,7 @@ import {
   NotFoundError,
   type RequestContext
 } from "@kanban/core";
+import { searchCardsQuerySchema, searchCardsResponseSchema } from "@kanban/contracts";
 import {
   Inject,
   BadRequestException,
@@ -126,6 +127,27 @@ export class KanbanService implements OnModuleDestroy {
       }
 
       return this.repository.listCardsByBoardId(boardId);
+    });
+  }
+
+  async searchCards(context: RequestContext, boardId: string, query: unknown) {
+    return this.runAsContext(context, async () => {
+      const board = await this.repository.findBoardById(boardId);
+      if (!board || board.orgId !== context.orgId) {
+        throw new NotFoundException("Board was not found.");
+      }
+
+      const parsed = searchCardsQuerySchema.safeParse(query);
+      if (!parsed.success) {
+        throw new BadRequestException(parsed.error.message);
+      }
+
+      const hits = await this.repository.searchCardsByBoardId(boardId, parsed.data.q, {
+        limit: parsed.data.limit ?? 20,
+        offset: parsed.data.offset ?? 0
+      });
+
+      return searchCardsResponseSchema.parse({ hits });
     });
   }
 

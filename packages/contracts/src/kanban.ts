@@ -215,6 +215,7 @@ export const outboxEventTypeSchema = z.enum([
   "card.moved",
   "ai.card-summary.requested",
   "ai.ask-board.requested",
+  "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
@@ -227,7 +228,8 @@ export const outboxEventSchema = z.object({
   id: nonEmptyString,
   type: outboxEventTypeSchema,
   orgId: nonEmptyString,
-  boardId: nonEmptyString,
+  // Some async jobs are org-scoped and may not have a board yet (e.g. board generation).
+  boardId: nonEmptyString.nullable(),
   payload: z.record(z.unknown()),
   createdAt: z.string()
 });

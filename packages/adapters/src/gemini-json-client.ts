@@ -1,4 +1,5 @@
 import {
+  boardBlueprintSchema,
   geminiAskBoardModelOutputSchema,
   geminiCardSummaryOutputSchema,
   geminiCoverSpecOutputSchema,
@@ -7,6 +8,7 @@ import {
   dailyStandupOutputSchema,
   type GeminiAskBoardModelOutput,
   type GeminiCardSummaryOutput,
+  type BoardBlueprint,
   type CoverSpec,
   type WeeklyRecapOutput,
   type DailyStandupOutput,
@@ -64,6 +66,10 @@ export interface GenerateThreadToCardDraftInput {
   threadName: string;
   transcript: string;
   participantDiscordUserIds?: string[];
+}
+
+export interface GenerateBoardBlueprintInput {
+  prompt: string;
 }
 
 export interface GenerateCoverSpecInput {
@@ -438,6 +444,35 @@ export class GeminiJsonClient {
     const candidate = await this.generateJsonCandidate(prompt);
     const normalized = normalizeThreadToCardCandidate(candidate);
     return geminiThreadToCardOutputSchema.parse(normalized);
+  }
+
+  async generateBoardBlueprint(input: GenerateBoardBlueprintInput): Promise<BoardBlueprint> {
+    const listExample = JSON.stringify(
+      {
+        title: "Todo",
+        cards: [
+          { title: "Define launch goals" },
+          { title: "Draft announcement copy", labels: [{ name: "marketing", color: "purple" }] }
+        ]
+      },
+      null,
+      2
+    );
+
+    const prompt = [
+      "You generate Kanban board blueprints from a user prompt.",
+      "Return strict JSON only (no markdown).",
+      "Schema keys: title, description, lists.",
+      "lists must be an array of objects with keys: title, cards.",
+      "cards must be an array of objects with keys: title, description, labels.",
+      `labels must be an array of objects with: name (string), color (one of: ${Array.from(CARD_LABEL_COLORS).join(", ")}).`,
+      `Example list: ${listExample}`,
+      "Keep it concise and realistic: 3-8 lists, up to 12 cards per list.",
+      "",
+      `User prompt: ${input.prompt.trim()}`
+    ].join("\n");
+
+    return this.generateJson(prompt, boardBlueprintSchema);
   }
 
   async generateWeeklyRecap(input: GenerateWeeklyRecapInput): Promise<WeeklyRecapOutput> {

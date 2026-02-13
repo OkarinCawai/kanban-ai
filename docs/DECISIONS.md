@@ -166,6 +166,13 @@ Newest decision with same topic supersedes older entries.
 - Decision: Wrap each outbox row execution in a Postgres savepoint and roll back to it on errors before updating retry metadata and failed job state. For ask-board, perform board document sync in a separate committed transaction before running the RLS-scoped retrieval query.
 - Consequences: Worker becomes resilient to per-row SQL failures (no batch-level abort); brand new boards can answer immediately after sync. Slightly higher DB transaction overhead per ask-board job.
 
+## D-023: Outbox events may omit board_id for org-scoped jobs
+- Date: 2026-02-13
+- Status: `accepted`
+- Context: Some async workflows (e.g. board blueprint generation) are queued before a board exists. The `public.outbox_events.board_id` column is nullable, but the shared `OutboxEvent` contract previously required a board id for every event.
+- Decision: Allow `OutboxEvent.boardId` to be nullable in `packages/contracts` and repository ports. Org-scoped outbox events set `board_id` to null while retaining `org_id` enforcement and role-based enqueue policies.
+- Consequences: Consumers must tolerate `boardId = null` and validate expectations per event type. RLS remains the primary enforcement boundary via `org_id` and per-table policies.
+
 ## Template for new decisions
 
 Use this block for future entries:

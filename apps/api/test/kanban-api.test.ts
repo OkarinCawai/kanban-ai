@@ -246,6 +246,42 @@ test("api: ask-board enqueues ai outbox event", async () => {
   }
 });
 
+test("api: board blueprint enqueue enqueues ai outbox event", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const response = await request(app.getHttpServer())
+      .post("/ai/board-blueprint")
+      .set(authHeaders)
+      .send({ prompt: "Generate a product launch board." });
+
+    assert.equal(response.status, 201);
+    assert.equal(response.body.status, "queued");
+    assert.equal(response.body.eventType, "ai.board-blueprint.requested");
+
+    const lastEvent = repository.getOutboxEvents().at(-1);
+    assert.equal(lastEvent?.type, "ai.board-blueprint.requested");
+    assert.equal(lastEvent?.boardId, null);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: viewer cannot enqueue board blueprint", async () => {
+  const { app } = await createApp();
+
+  try {
+    const response = await request(app.getHttpServer())
+      .post("/ai/board-blueprint")
+      .set(viewerHeaders)
+      .send({ prompt: "Blocked" });
+
+    assert.equal(response.status, 403);
+  } finally {
+    await app.close();
+  }
+});
+
 test("api: card summary status returns queued before worker completion", async () => {
   const { app } = await createApp();
 
@@ -308,6 +344,28 @@ test("api: ask-board status returns queued persisted status before completion", 
     assert.equal(status.body.status, "queued");
     assert.equal(status.body.jobId, queued.body.jobId);
     assert.equal(status.body.topK, 6);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: board blueprint status returns queued persisted status before completion", async () => {
+  const { app } = await createApp();
+
+  try {
+    const queued = await request(app.getHttpServer())
+      .post("/ai/board-blueprint")
+      .set(authHeaders)
+      .send({ prompt: "Generate a launch board." });
+
+    const status = await request(app.getHttpServer())
+      .get(`/ai/board-blueprint/${queued.body.jobId}`)
+      .set(authHeaders);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, "queued");
+    assert.equal(status.body.jobId, queued.body.jobId);
+    assert.equal(status.body.prompt, "Generate a launch board.");
   } finally {
     await app.close();
   }
@@ -392,6 +450,167 @@ test("api: ask-board status returns completed payload when persisted", async () 
     assert.equal(status.status, 200);
     assert.equal(status.body.status, "completed");
     assert.equal(status.body.answer.references.length, 1);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: board blueprint confirm creates board idempotently", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const jobId = "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a";
+
+    repository.seedBoardBlueprintResult({
+      jobId,
+      orgId: authHeaders["x-org-id"],
+      requesterUserId: authHeaders["x-user-id"],
+      prompt: "Generate a launch board.",
+      status: "completed",
+      blueprint: {
+        title: "Launch Plan",
+        lists: [
+          {
+            title: "Todo",
+            cards: [{ title: "Define launch goals" }]
+          },
+          {
+            title: "Doing",
+            cards: [{ title: "Draft announcement copy" }]
+          }
+        ]
+      },
+      updatedAt: new Date().toISOString()
+    });
+
+    const confirm1 = await request(app.getHttpServer())
+      .post(`/ai/board-blueprint/${jobId}/confirm`)
+      .set(authHeaders)
+      .send({});
+
+    assert.equal(confirm1.status, 201);
+    assert.equal(confirm1.body.created, true);
+    assert.match(confirm1.body.board.id, /^[0-9a-f-]{36}$/i);
+    assert.equal(confirm1.body.board.orgId, authHeaders["x-org-id"]);
+
+    const confirm2 = await request(app.getHttpServer())
+      .post(`/ai/board-blueprint/${jobId}/confirm`)
+      .set(authHeaders)
+      .send({});
+
+    assert.equal(confirm2.status, 201);
+    assert.equal(confirm2.body.created, false);
+    assert.equal(confirm2.body.board.id, confirm1.body.board.id);
+
+    const outboxTypes = repository.getOutboxEvents().map((evt) => evt.type);
+    assert.equal(outboxTypes.includes("board.created"), true);
+    assert.equal(outboxTypes.includes("list.created"), true);
+    assert.equal(outboxTypes.includes("card.created"), true);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: board list endpoints return lists and cards", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+    const boardId = boardResponse.body.id as string;
+
+    const todoResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId, title: "Todo", position: 0 });
+
+    const doingResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId, title: "Doing", position: 1024 });
+
+    await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: todoResponse.body.id, title: "First", position: 1024 });
+
+    await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: doingResponse.body.id, title: "Second", position: 2048 });
+
+    const listsResponse = await request(app.getHttpServer())
+      .get(`/boards/${boardId}/lists`)
+      .set(authHeaders);
+
+    assert.equal(listsResponse.status, 200);
+    assert.equal(Array.isArray(listsResponse.body), true);
+    assert.equal(listsResponse.body.length, 2);
+    assert.equal(listsResponse.body[0].title, "Todo");
+    assert.equal(listsResponse.body[1].title, "Doing");
+
+    const cardsResponse = await request(app.getHttpServer())
+      .get(`/boards/${boardId}/cards`)
+      .set(authHeaders);
+
+    assert.equal(cardsResponse.status, 200);
+    assert.equal(Array.isArray(cardsResponse.body), true);
+    assert.equal(cardsResponse.body.length, 2);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: board search returns matching cards", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+    const boardId = boardResponse.body.id as string;
+
+    const listResponse = await request(app.getHttpServer())
+      .post("/lists")
+      .set(authHeaders)
+      .send({ boardId, title: "Todo", position: 0 });
+
+    const cardResponse = await request(app.getHttpServer())
+      .post("/cards")
+      .set(authHeaders)
+      .send({ listId: listResponse.body.id, title: "Implement Search", description: "Search FTS test" });
+
+    const searchResponse = await request(app.getHttpServer())
+      .get(`/boards/${boardId}/search`)
+      .query({ q: "search" })
+      .set(authHeaders);
+
+    assert.equal(searchResponse.status, 200);
+    assert.equal(Array.isArray(searchResponse.body.hits), true);
+    assert.equal(searchResponse.body.hits.length, 1);
+    assert.equal(searchResponse.body.hits[0].cardId, cardResponse.body.id);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: board search requires q param", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+
+    const response = await request(app.getHttpServer())
+      .get(`/boards/${boardResponse.body.id}/search`)
+      .set(authHeaders);
+
+    assert.equal(response.status, 400);
   } finally {
     await app.close();
   }

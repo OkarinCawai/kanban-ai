@@ -15,10 +15,9 @@
     "@kanban/utils": "0.1.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
+    "@sentry/node": "^10.38.0",
     "dotenv": "^16.4.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   }
 }
-
-

@@ -28,6 +28,7 @@ const requiredTables = [
   "card_summaries",
   "card_covers",
   "ai_ask_requests",
+  "board_generation_requests",
   "board_weekly_recaps",
   "board_daily_standups",
   "board_stuck_reports",
@@ -72,6 +73,9 @@ test("policy: board/list/card read and write policies are present", () => {
     "ai_ask_requests_select_policy",
     "ai_ask_requests_insert_policy",
     "ai_ask_requests_update_policy",
+    "board_generation_requests_select_policy",
+    "board_generation_requests_insert_policy",
+    "board_generation_requests_update_policy",
     "board_weekly_recaps_select_policy",
     "board_weekly_recaps_write_policy",
     "board_daily_standups_select_policy",
@@ -127,6 +131,16 @@ test("policy: M8 card enrichment columns and constraints are present", () => {
   for (const constraint of requiredConstraints) {
     assert.match(sql, new RegExp(`\\b${constraint}\\b`, "i"), `Missing card constraint ${constraint}`);
   }
+});
+
+test("policy: M11 card search FTS column and index are present", () => {
+  assert.match(sql, /\bsearch_tsv\b/i, "Missing cards search_tsv column.");
+  assert.match(sql, /\bidx_cards_search_tsv\b/i, "Missing cards search_tsv GIN index.");
+  assert.match(
+    sql,
+    /jsonb_path_query_array\s*\(\s*labels_json\s*,\s*'\$\[\*\]\.name'\s*\)/i,
+    "Missing labels_json extraction for card search FTS."
+  );
 });
 
 test("policy: thread-to-card writes require editor or admin role", () => {

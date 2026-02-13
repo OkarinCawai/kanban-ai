@@ -4,6 +4,8 @@ import http from "node:http";
 import { formatStructuredLog } from "@kanban/utils";
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 
+import { captureException } from "./sentry.js";
+
 type DiscordConfig = {
   publicKeyHex: string;
   applicationId: string;
@@ -295,6 +297,7 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
     this.config = config;
 
     await this.registerCommands(config).catch((error) => {
+      captureException(error, { stage: "discord.registerCommands" });
       process.stdout.write(
         formatStructuredLog({
           level: "warn",
@@ -306,6 +309,7 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
 
     const server = http.createServer((req, res) => void this.handleRequest(req, res));
     server.on("error", (error) => {
+      captureException(error, { stage: "discord.server" });
       process.stdout.write(
         formatStructuredLog({
           level: "error",
@@ -1364,6 +1368,7 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
 
       await this.editOriginalResponse(config, interaction, "Unknown command.");
     } catch (error) {
+      captureException(error, { stage: "discord.command" });
       await this.editOriginalResponse(
         config,
         interaction,
@@ -1408,6 +1413,7 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
         []
       );
     } catch (error) {
+      captureException(error, { stage: "discord.threadConfirm" });
       await this.editOriginalResponse(
         config,
         interaction,

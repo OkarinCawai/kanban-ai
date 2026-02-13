@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { Board, Card, KanbanList, OutboxEvent } from "@kanban/contracts";
+import type { Board, Card, CardSearchHit, KanbanList, OutboxEvent } from "@kanban/contracts";
 
 import {
   ConflictError,
@@ -62,6 +62,10 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findBoardBlueprintResultByJobId(_jobId: string): Promise<null> {
+    return null;
+  }
+
   async findWeeklyRecapByBoardId(_boardId: string): Promise<null> {
     return null;
   }
@@ -88,6 +92,10 @@ class FakeRepository implements KanbanRepository {
     return Array.from(this.cards.values())
       .filter((card) => card.boardId === boardId)
       .sort((a, b) => a.position - b.position);
+  }
+
+  async searchCardsByBoardId(_boardId: string, _query: string): Promise<CardSearchHit[]> {
+    return [];
   }
 
   async runInTransaction<T>(
@@ -233,6 +241,9 @@ class FakeRepository implements KanbanRepository {
         // Not used in Kanban use-case tests.
       },
       upsertAskBoardRequest: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertBoardBlueprintRequest: async () => {
         // Not used in Kanban use-case tests.
       },
       upsertCardCover: async () => {

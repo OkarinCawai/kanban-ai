@@ -47,6 +47,7 @@ test(
     const boardB = "a15a1aba-a8b5-4e8b-8f73-674d988bce44";
     const listA = "d2d694ed-fb78-4f30-a918-2dd933644af8";
     const cardA = "c6a94d8c-4e5b-4de2-bdfd-5ccdd50849df";
+    const boardGenA = "b1b1d5b6-0a75-4f0b-9ae4-f0c2d5c3a1b6";
 
     await client.connect();
 
@@ -89,11 +90,33 @@ test(
       );
       await client.query(
         `
-          insert into public.cards (id, org_id, board_id, list_id, title, position)
-          values ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Probe Card', 1024)
+          insert into public.cards (
+            id,
+            org_id,
+            board_id,
+            list_id,
+            title,
+            labels_json,
+            position
+          )
+          values (
+            $1::uuid,
+            $2::uuid,
+            $3::uuid,
+            $4::uuid,
+            'Probe Card',
+            $5::jsonb,
+            1024
+          )
           on conflict (id) do update set title = excluded.title
         `,
-        [cardA, orgA, boardA, listA]
+        [
+          cardA,
+          orgA,
+          boardA,
+          listA,
+          JSON.stringify([{ id: cardA, name: "urgent", color: "red" }])
+        ]
       );
       await client.query("commit");
 
@@ -106,6 +129,72 @@ test(
           )
       );
       assert.deepEqual(visibleBoards.rows.map((row) => row.id), [boardA]);
+
+      const viewerSearch = await runWithClaims(
+        client,
+        { sub: userViewer, org_id: orgA, role: "viewer" },
+        (tx) =>
+          tx.query(
+            `
+              select id
+              from public.cards
+              where board_id = $1::uuid
+                and search_tsv @@ websearch_to_tsquery('english', $2)
+              order by id
+            `,
+            [boardA, "probe"]
+          )
+      );
+      assert.deepEqual(viewerSearch.rows.map((row) => row.id), [cardA]);
+
+      const viewerSearchLabel = await runWithClaims(
+        client,
+        { sub: userViewer, org_id: orgA, role: "viewer" },
+        (tx) =>
+          tx.query(
+            `
+              select id
+              from public.cards
+              where board_id = $1::uuid
+                and search_tsv @@ websearch_to_tsquery('english', $2)
+              order by id
+            `,
+            [boardA, "urgent"]
+          )
+      );
+      assert.deepEqual(viewerSearchLabel.rows.map((row) => row.id), [cardA]);
+
+      const crossOrgSearch = await runWithClaims(
+        client,
+        { sub: userOther, org_id: orgB, role: "viewer" },
+        (tx) =>
+          tx.query(
+            `
+              select id
+              from public.cards
+              where board_id = $1::uuid
+                and search_tsv @@ websearch_to_tsquery('english', $2)
+            `,
+            [boardA, "probe"]
+          )
+      );
+      assert.equal(crossOrgSearch.rowCount, 0);
+
+      const crossOrgSearchLabel = await runWithClaims(
+        client,
+        { sub: userOther, org_id: orgB, role: "viewer" },
+        (tx) =>
+          tx.query(
+            `
+              select id
+              from public.cards
+              where board_id = $1::uuid
+                and search_tsv @@ websearch_to_tsquery('english', $2)
+            `,
+            [boardA, "urgent"]
+          )
+      );
+      assert.equal(crossOrgSearchLabel.rowCount, 0);
 
       const crossOrgBoards = await runWithClaims(
         client,
@@ -601,6 +690,83 @@ test(
           )
       );
       assert.equal(threadInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.board_generation_requests (
+                    id,
+                    org_id,
+                    requester_user_id,
+                    prompt
+                  )
+                  values (
+                    $1::uuid,
+                    $2::uuid,
+                    $3::uuid,
+                    'Viewer blocked'
+                  )
+                `,
+                [boardGenA, orgA, userViewer]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
+      const boardGenInsert = await runWithClaims(
+        client,
+        { sub: userEditor, org_id: orgA, role: "editor" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.board_generation_requests (
+                id,
+                org_id,
+                requester_user_id,
+                prompt
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                'Editor queued board generation'
+              )
+              returning id
+            `,
+            [boardGenA, orgA, userEditor]
+          )
+      );
+      assert.equal(boardGenInsert.rowCount, 1);
+
+      const boardGenVisible = await runWithClaims(
+        client,
+        { sub: userViewer, org_id: orgA, role: "viewer" },
+        (tx) =>
+          tx.query(
+            "select id from public.board_generation_requests where id = $1::uuid",
+            [boardGenA]
+          )
+      );
+      assert.equal(boardGenVisible.rowCount, 1);
+
+      const boardGenCrossOrg = await runWithClaims(
+        client,
+        { sub: userOther, org_id: orgB, role: "viewer" },
+        (tx) =>
+          tx.query(
+            "select id from public.board_generation_requests where id = $1::uuid",
+            [boardGenA]
+          )
+      );
+      assert.equal(boardGenCrossOrg.rowCount, 0);
     } finally {
       await client.query("begin");
       await client.query(
@@ -642,6 +808,12 @@ test(
             '2ea69b97-4f26-4de2-92eb-7f2ce18a4b3c'::uuid,
             'cf1d5d76-56f2-4cc6-aae8-f3b5c73df2f8'::uuid
           )
+        `
+      );
+      await client.query(
+        `
+          delete from public.board_generation_requests
+          where id = 'b1b1d5b6-0a75-4f0b-9ae4-f0c2d5c3a1b6'::uuid
         `
       );
       await client.query(

@@ -2,7 +2,8 @@ param(
   [ValidateSet("start", "stop", "restart", "status")]
   [string]$Action = "restart",
   [switch]$SkipBuild,
-  [switch]$SkipTunnel
+  [switch]$SkipTunnel,
+  [switch]$WebReact
 )
 
 $ErrorActionPreference = "Stop"
@@ -65,6 +66,21 @@ $serviceDefs = @(
     ProbeBody = $null
   }
 )
+
+if ($WebReact) {
+  $serviceDefs += [pscustomobject]@{
+    Name = "web-react"
+    Workspace = "@kanban/web-react"
+    NpmScript = "dev"
+    UseDotenvConfig = $false
+    Port = 3005
+    Out = "dev_web_react_out.log"
+    Err = "dev_web_react_err.log"
+    ProbeUri = "http://localhost:3005/"
+    ProbeMethod = "GET"
+    ProbeBody = $null
+  }
+}
 
 $tunnelDef = [pscustomobject]@{
   Exe = (Join-Path $root "tools/cloudflared.exe")
@@ -339,7 +355,7 @@ function Wait-ForServiceProbe {
 
     $ready = $false
     if ($null -ne $statusCode) {
-      if ($ServiceDef.Name -eq "web") {
+      if ($ServiceDef.Name -eq "web" -or $ServiceDef.Name -eq "web-react") {
         $ready = ($statusCode -eq 200)
       } elseif ($ServiceDef.Name -eq "discord") {
         $ready = ($statusCode -eq 401)
@@ -378,16 +394,18 @@ function Start-ServiceProcess {
 
   $outPath = Join-Path $root $ServiceDef.Out
   $errPath = Join-Path $root $ServiceDef.Err
-  $entryPath = Join-Path $root $ServiceDef.Entry
   Remove-FileIfExists $outPath
   Remove-FileIfExists $errPath
 
-  if (-not (Test-Path $entryPath)) {
-    throw "Missing entrypoint for service '$($ServiceDef.Name)': $entryPath"
+  $isNodeEntrypoint = $ServiceDef.PSObject.Properties.Name -contains "Entry"
+  $isNpmWorkspace = (-not $isNodeEntrypoint) -and `
+    ($ServiceDef.PSObject.Properties.Name -contains "Workspace") -and `
+    ($ServiceDef.PSObject.Properties.Name -contains "NpmScript")
+
+  if (-not $isNodeEntrypoint -and -not $isNpmWorkspace) {
+    throw "Service '$($ServiceDef.Name)' must define Entry or Workspace+NpmScript."
   }
 
-  Write-Step "Starting $($ServiceDef.Name) (node $($ServiceDef.Entry))."
-  $escapedEntry = $entryPath -replace '"', '""'
   $escapedOut = $outPath -replace '"', '""'
   $escapedErr = $errPath -replace '"', '""'
   $commandSegments = @()
@@ -395,7 +413,45 @@ function Start-ServiceProcess {
     $escapedDotenv = $dotenvPath -replace '"', '""'
     $commandSegments += "set `"DOTENV_CONFIG_PATH=$escapedDotenv`""
   }
-  $commandSegments += "node.exe `"$escapedEntry`" 1>>`"$escapedOut`" 2>>`"$escapedErr`""
+
+  $serviceState = $null
+  if ($isNodeEntrypoint) {
+    $entryPath = Join-Path $root $ServiceDef.Entry
+    if (-not (Test-Path $entryPath)) {
+      throw "Missing entrypoint for service '$($ServiceDef.Name)': $entryPath"
+    }
+
+    Write-Step "Starting $($ServiceDef.Name) (node $($ServiceDef.Entry))."
+    $escapedEntry = $entryPath -replace '"', '""'
+    $commandSegments += "node.exe `"$escapedEntry`" 1>>`"$escapedOut`" 2>>`"$escapedErr`""
+
+    $serviceState = [pscustomobject]@{
+      Name = $ServiceDef.Name
+      Entry = $ServiceDef.Entry
+      Port = $ServiceDef.Port
+      Out = $ServiceDef.Out
+      Err = $ServiceDef.Err
+    }
+  } else {
+    $workspace = [string]$ServiceDef.Workspace
+    $npmScript = [string]$ServiceDef.NpmScript
+
+    if ([string]::IsNullOrWhiteSpace($workspace) -or [string]::IsNullOrWhiteSpace($npmScript)) {
+      throw "Service '$($ServiceDef.Name)' Workspace/NpmScript cannot be empty."
+    }
+
+    Write-Step "Starting $($ServiceDef.Name) (npm run $npmScript --workspace $workspace)."
+    $commandSegments += "npm.cmd run $npmScript --workspace $workspace 1>>`"$escapedOut`" 2>>`"$escapedErr`""
+
+    $serviceState = [pscustomobject]@{
+      Name = $ServiceDef.Name
+      Workspace = $workspace
+      Script = $npmScript
+      Port = $ServiceDef.Port
+      Out = $ServiceDef.Out
+      Err = $ServiceDef.Err
+    }
+  }
   $commandScript = $commandSegments -join " && "
 
   $process = Start-Process `
@@ -411,14 +467,8 @@ function Start-ServiceProcess {
     throw "Failed to start $($ServiceDef.Name); process exited immediately. stderr tail:`n$errTail"
   }
 
-  return [pscustomobject]@{
-    Name = $ServiceDef.Name
-    Entry = $ServiceDef.Entry
-    Port = $ServiceDef.Port
-    Pid = $process.Id
-    Out = $ServiceDef.Out
-    Err = $ServiceDef.Err
-  }
+  $serviceState | Add-Member -NotePropertyName Pid -NotePropertyValue $process.Id
+  return $serviceState
 }
 
 function Wait-ForTunnelUrl {

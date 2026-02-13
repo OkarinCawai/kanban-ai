@@ -1,18 +1,22 @@
 import {
   askBoardResultSchema,
+  boardBlueprintResultSchema,
   boardStuckReportResultSchema,
   cardChecklistItemSchema,
   cardCoverResultSchema,
   cardLabelSchema,
+  cardSearchHitSchema,
   cardSummaryResultSchema,
   dailyStandupResultSchema,
   threadToCardResultSchema,
   weeklyRecapResultSchema,
   type AskBoardResult,
   type Board,
+  type BoardBlueprintResult,
   type BoardStuckReportResult,
   type Card,
   type CardCoverResult,
+  type CardSearchHit,
   type CardSummaryResult,
   type DailyStandupResult,
   type KanbanList,
@@ -101,6 +105,19 @@ type DbAskBoardResult = {
   updated_at: string | Date;
 };
 
+type DbBoardBlueprintResult = {
+  id: string;
+  org_id: string;
+  requester_user_id: string;
+  prompt: string;
+  status: string;
+  blueprint_json: unknown;
+  created_board_id: string | null;
+  source_event_id: string | null;
+  failure_reason: string | null;
+  updated_at: string | Date;
+};
+
 type DbWeeklyRecap = {
   board_id: string;
   job_id: string;
@@ -148,6 +165,15 @@ type DbThreadToCardResult = {
   created_card_id: string | null;
   source_event_id: string | null;
   failure_reason: string | null;
+  updated_at: string | Date;
+};
+
+type DbCardSearchHit = {
+  id: string;
+  list_id: string;
+  title: string;
+  snippet: string | null;
+  rank: number | string | null;
   updated_at: string | Date;
 };
 
@@ -274,6 +300,20 @@ const mapAskBoardResult = (row: DbAskBoardResult): AskBoardResult =>
     updatedAt: toIso(row.updated_at)
   });
 
+const mapBoardBlueprintResult = (row: DbBoardBlueprintResult): BoardBlueprintResult =>
+  boardBlueprintResultSchema.parse({
+    jobId: row.id,
+    orgId: row.org_id,
+    requesterUserId: row.requester_user_id,
+    prompt: row.prompt,
+    status: row.status,
+    blueprint: row.blueprint_json ?? undefined,
+    createdBoardId: row.created_board_id ?? undefined,
+    sourceEventId: row.source_event_id ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
 const mapWeeklyRecap = (row: DbWeeklyRecap): WeeklyRecapResult =>
   weeklyRecapResultSchema.parse({
     boardId: row.board_id,
@@ -327,6 +367,24 @@ const mapThreadToCardResult = (row: DbThreadToCardResult): ThreadToCardResult =>
     failureReason: row.failure_reason ?? undefined,
     updatedAt: toIso(row.updated_at)
   });
+
+const mapCardSearchHit = (row: DbCardSearchHit): CardSearchHit => {
+  const rank =
+    typeof row.rank === "number"
+      ? row.rank
+      : typeof row.rank === "string"
+        ? Number(row.rank)
+        : undefined;
+
+  return cardSearchHitSchema.parse({
+    cardId: row.id,
+    listId: row.list_id,
+    title: row.title,
+    snippet: row.snippet ?? undefined,
+    rank: Number.isFinite(rank) ? rank : undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+};
 
 export class PostgresKanbanRepository implements KanbanRepository {
   constructor(
@@ -440,6 +498,32 @@ export class PostgresKanbanRepository implements KanbanRepository {
       );
 
       return result.rows[0] ? mapAskBoardResult(result.rows[0]) : null;
+    });
+  }
+
+  async findBoardBlueprintResultByJobId(jobId: string): Promise<BoardBlueprintResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbBoardBlueprintResult>(
+        `
+          select
+            id,
+            org_id,
+            requester_user_id,
+            prompt,
+            status,
+            blueprint_json,
+            created_board_id,
+            source_event_id,
+            failure_reason,
+            updated_at
+          from public.board_generation_requests
+          where id = $1::uuid
+          limit 1
+        `,
+        [jobId]
+      );
+
+      return result.rows[0] ? mapBoardBlueprintResult(result.rows[0]) : null;
     });
   }
 
@@ -574,6 +658,46 @@ export class PostgresKanbanRepository implements KanbanRepository {
       );
 
       return result.rows.map(mapCard);
+    });
+  }
+
+  async searchCardsByBoardId(
+    boardId: string,
+    query: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<CardSearchHit[]> {
+    const trimmed = query.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    const limit = options?.limit ?? 20;
+    const offset = options?.offset ?? 0;
+
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbCardSearchHit>(
+        `
+          with q as (
+            select websearch_to_tsquery('english', $2) as query
+          )
+          select
+            c.id,
+            c.list_id,
+            c.title,
+            left(regexp_replace(coalesce(c.description, ''), '\\s+', ' ', 'g'), 200) as snippet,
+            ts_rank_cd(c.search_tsv, q.query) as rank,
+            c.updated_at
+          from public.cards c, q
+          where c.board_id = $1::uuid
+            and c.search_tsv @@ q.query
+          order by rank desc, c.updated_at desc
+          limit $3::int
+          offset $4::int
+        `,
+        [boardId, trimmed, limit, offset]
+      );
+
+      return result.rows.map(mapCardSearchHit);
     });
   }
 
@@ -830,6 +954,60 @@ export class PostgresKanbanRepository implements KanbanRepository {
               input.status,
               input.answerJson ? JSON.stringify(input.answerJson) : null,
               input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertBoardBlueprintRequest: async (input) => {
+          await client.query(
+            `
+              insert into public.board_generation_requests (
+                id,
+                org_id,
+                requester_user_id,
+                prompt,
+                status,
+                blueprint_json,
+                created_board_id,
+                source_event_id,
+                failure_reason,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4,
+                $5,
+                $6::jsonb,
+                $7::uuid,
+                $8::uuid,
+                $9,
+                now(),
+                $10::timestamptz
+              )
+              on conflict (id) do update
+              set
+                requester_user_id = excluded.requester_user_id,
+                prompt = excluded.prompt,
+                status = excluded.status,
+                blueprint_json = excluded.blueprint_json,
+                created_board_id = excluded.created_board_id,
+                source_event_id = excluded.source_event_id,
+                failure_reason = excluded.failure_reason,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.id,
+              input.orgId,
+              input.requesterUserId,
+              input.prompt,
+              input.status,
+              input.blueprintJson ? JSON.stringify(input.blueprintJson) : null,
+              input.createdBoardId ?? null,
+              input.sourceEventId ?? null,
+              input.failureReason ?? null,
               input.updatedAt
             ]
           );

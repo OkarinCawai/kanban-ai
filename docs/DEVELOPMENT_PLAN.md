@@ -256,20 +256,20 @@ Exit criteria:
 
 ## Milestone 10: Web React Migration
 
-Status (2026-02-12): `planned`
+Status (2026-02-13): `completed`
 
 Progress snapshot:
-- [ ] Scaffold a new React web app (`apps/web-react`) using Vite + TypeScript.
-- [ ] Keep `packages/contracts` as the source of truth for DTOs/schemas; do not fork payload shapes.
-- [ ] Port core board flows (create board/list/card; move cards with optimistic concurrency + version).
-- [ ] Replace the current drag-and-drop implementation with a production-grade DnD library (`@hello-pangea/dnd` or equivalent).
-- [ ] Use a query/cache layer (TanStack Query recommended) and keep optimistic UI for safe operations.
-- [ ] Port async AI surfaces (ask-board, summarize, cover) with the same `queued/processing/completed/failed` UX model.
-- [ ] Incremental cutover: keep `apps/web` running until `apps/web-react` reaches parity and passes the same verification suite.
+- [x] Scaffold a new React web app (`apps/web-react`) using React + TypeScript (webpack bundling for build/dev).
+- [x] Keep `packages/contracts` as the source of truth for DTOs/schemas; do not fork payload shapes.
+- [x] Port core board flows (create board/list/card; move cards with optimistic concurrency + version).
+- [x] Replace the current drag-and-drop implementation with a production-grade DnD library (`@hello-pangea/dnd` or equivalent).
+- [x] Use a query/cache layer (TanStack Query recommended) and keep optimistic UI for safe operations.
+- [x] Port async AI surfaces (ask-board, summarize, cover) with the same `queued/processing/completed/failed` UX model.
+- [x] Incremental cutover: keep `apps/web` running until `apps/web-react` reaches parity and passes the same verification suite.
 
 Deliverables:
-- New app: `apps/web-react` (React + Vite).
-- Parity checklist vs `apps/web` (board, details, AI actions, auth).
+- New app: `apps/web-react` (React + TypeScript, webpack build/dev).
+- Parity checklist vs `apps/web` (board, details, AI actions, auth): `docs/M10_WEB_REACT_PARITY_CHECKLIST.md`.
 - Contract-validated API client wiring (Zod validation from `packages/contracts`).
 - Minimal E2E smoke verification script/update to ensure core flows still work after cutover.
 
@@ -279,12 +279,12 @@ Exit criteria:
 
 ## Milestone 11: Search + Discovery (FTS + Optional Semantic)
 
-Status (2026-02-12): `planned`
+Status (2026-02-13): `completed`
 
 Progress snapshot:
-- [ ] Add Postgres full-text search over cards (title + description + key metadata) using `tsvector` + GIN index.
-- [ ] Add a scoped search API endpoint (board/org scoped; enforced by RLS).
-- [ ] Add a web search UI (query box, result list, and jump-to-card interaction).
+- [x] Add Postgres full-text search over cards (title + description + key metadata) using `tsvector` + GIN index.
+- [x] Add a scoped search API endpoint (board/org scoped; enforced by RLS).
+- [x] Add a web search UI (query box, result list, and jump-to-card interaction).
 - [ ] Optional: semantic search using `pgvector` (embeddings generated async in the worker) with permission-aware retrieval.
 
 Deliverables:
@@ -298,15 +298,15 @@ Exit criteria:
 
 ## Milestone 12: Generative Board Creation (Async)
 
-Status (2026-02-12): `planned`
+Status (2026-02-13): `completed`
 
 Progress snapshot:
-- [ ] Define a strict `BoardBlueprint` contract (board title, lists, cards, ordering, optional metadata) in `packages/contracts`.
-- [ ] Add API endpoint(s) to queue board generation as an async job (outbox event) and read status.
-- [ ] Worker job calls Gemini through an adapter and validates output strictly against `BoardBlueprint`.
-- [ ] Add a preview + confirm flow: users review the blueprint before any DB writes.
-- [ ] Confirm step creates board/lists/cards transactionally via `KanbanRepository`.
-- [ ] Idempotency keys prevent duplicate boards across retries.
+- [x] Define a strict `BoardBlueprint` contract (board title, lists, cards, ordering, optional metadata) in `packages/contracts`.
+- [x] Add API endpoint(s) to queue board generation as an async job (outbox event) and read status.
+- [x] Worker job calls Gemini through an adapter and validates output strictly against `BoardBlueprint`.
+- [x] Add a preview + confirm flow: users review the blueprint before any DB writes.
+- [x] Confirm step creates board/lists/cards transactionally via `KanbanRepository`.
+- [x] Idempotency keys prevent duplicate boards across retries.
 
 Deliverables:
 - New async job type + status storage (RLS-protected).

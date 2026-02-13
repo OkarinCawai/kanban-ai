@@ -137,22 +137,33 @@ const ensureStorageBucketExists = async (args) => {
 };
 
 const verifyLocalHttp = async (args) => {
-  const { check, url, options, predicate, expectation } = args;
+  const { check, url, options, predicate, expectation, severity = "fail" } = args;
+  const recordFailure = severity === "warn" ? warn : fail;
   try {
     const response = await fetchWithTimeout(url, options);
     if (!predicate(response)) {
-      fail(check, `Unexpected status ${response.status}. ${expectation}`);
+      recordFailure(check, `Unexpected status ${response.status}. ${expectation}`);
       return false;
     }
 
     pass(check, `HTTP ${response.status} from ${url}`);
     return true;
   } catch (error) {
-    fail(
+    recordFailure(
       check,
       `Request to ${url} failed: ${error instanceof Error ? error.message : String(error)}`
     );
     return false;
+  }
+};
+
+const readDevStackState = async () => {
+  const statePath = path.join(process.cwd(), "dev_stack_state.json");
+  try {
+    const content = await readFile(statePath, "utf8");
+    return JSON.parse(content.replace(/^\uFEFF/, ""));
+  } catch {
+    return null;
   }
 };
 
@@ -1180,10 +1191,83 @@ const verifyPublicInteractionsIngress = async () => {
   );
 };
 
+const readDevStackServiceNames = async () => {
+  const state = await readDevStackState();
+  if (!state) {
+    return [];
+  }
+
+  const services = state.Services ?? state.services;
+  if (!Array.isArray(services)) {
+    return [];
+  }
+
+  return services
+    .map((service) => (service && typeof service === "object" ? service.Name ?? service.name : null))
+    .filter((name) => typeof name === "string")
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+};
+
+const detectWebReactProbeMode = async () => {
+  const args = process.argv.slice(2);
+
+  const requireByArg = args.includes("--require-web-react");
+  const probeByArg =
+    requireByArg || args.includes("--web-react") || args.includes("--probe-web-react");
+
+  const requireByEnv = ["REQUIRE_WEB_REACT"].some(
+    (key) => (process.env[key] ?? "").trim().length > 0
+  );
+  const probeByEnv =
+    requireByEnv ||
+    ["VERIFY_WEB_REACT", "PROBE_WEB_REACT"].some(
+      (key) => (process.env[key] ?? "").trim().length > 0
+    );
+
+  if (requireByArg || requireByEnv) {
+    return "require";
+  }
+
+  if (probeByArg || probeByEnv) {
+    return "probe";
+  }
+
+  const serviceNames = await readDevStackServiceNames();
+  return serviceNames.includes("web-react") ? "probe" : "skip";
+};
+
+const verifyWebReact = async (mode) => {
+  if (mode === "skip") {
+    return;
+  }
+
+  const severity = mode === "require" ? "fail" : "warn";
+
+  await verifyLocalHttp({
+    check: "web-react",
+    url: "http://localhost:3005/",
+    options: { method: "GET" },
+    predicate: (response) => response.status === 200,
+    expectation: "Expected 200 from web-react root.",
+    severity
+  });
+
+  await verifyLocalHttp({
+    check: "web-react-callback",
+    url: "http://localhost:3005/auth/callback.html",
+    options: { method: "GET" },
+    predicate: (response) => response.status === 200,
+    expectation: "Expected 200 from web-react auth callback page.",
+    severity
+  });
+};
+
 const run = async () => {
   process.stdout.write("Starting live stack verification...\n");
 
   await verifyLocalServices();
+  await verifyWebReact(await detectWebReactProbeMode());
   await verifyPublicInteractionsIngress();
 
   const dbUrl = process.env.SUPABASE_DB_URL?.trim();

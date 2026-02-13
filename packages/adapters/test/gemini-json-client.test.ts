@@ -109,6 +109,41 @@ test("adapters: gemini thread-to-card client parses strict draft output", async 
   assert.equal(draft.labels?.[0]?.color, "orange");
 });
 
+test("adapters: gemini board blueprint client parses strict blueprint output", async () => {
+  const fetchImpl = createFetchWithCandidate(
+    JSON.stringify({
+      title: "Launch Plan",
+      description: "A lightweight launch execution board",
+      lists: [
+        {
+          title: "Todo",
+          cards: [
+            { title: "Define launch goals" },
+            { title: "Draft announcement copy", labels: [{ name: "marketing", color: "purple" }] }
+          ]
+        },
+        {
+          title: "Doing",
+          cards: [{ title: "Prep landing page" }]
+        }
+      ]
+    })
+  );
+
+  const client = new GeminiJsonClient({
+    apiKey: "test-key",
+    fetchImpl
+  });
+
+  const blueprint = await client.generateBoardBlueprint({
+    prompt: "Create a product launch board"
+  });
+
+  assert.equal(blueprint.title, "Launch Plan");
+  assert.equal(blueprint.lists.length, 2);
+  assert.equal(blueprint.lists[0]?.cards.length, 2);
+});
+
 test("adapters: gemini daily standup client normalizes array candidate", async () => {
   const fetchImpl = createFetchWithCandidate(
     JSON.stringify([

@@ -5,6 +5,7 @@ import type {
   Board,
   BoardStuckReportResult,
   Card,
+  CardSearchHit,
   KanbanList,
   OutboxEvent
 } from "@kanban/contracts";
@@ -54,6 +55,10 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findBoardBlueprintResultByJobId(_jobId: string): Promise<null> {
+    return null;
+  }
+
   async findWeeklyRecapByBoardId(_boardId: string): Promise<null> {
     return null;
   }
@@ -77,6 +82,10 @@ class FakeRepository implements KanbanRepository {
   }
 
   async listCardsByBoardId(_boardId: string): Promise<Card[]> {
+    return [];
+  }
+
+  async searchCardsByBoardId(_boardId: string, _query: string): Promise<CardSearchHit[]> {
     return [];
   }
 
@@ -108,6 +117,9 @@ class FakeRepository implements KanbanRepository {
         // Not used.
       },
       upsertAskBoardRequest: async () => {
+        // Not used.
+      },
+      upsertBoardBlueprintRequest: async () => {
         // Not used.
       },
       upsertCardCover: async () => {

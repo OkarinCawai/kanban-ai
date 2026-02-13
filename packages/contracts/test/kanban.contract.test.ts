@@ -15,8 +15,13 @@ import {
   discordThreadToCardInputSchema,
   discordThreadToCardStatusInputSchema,
   aiCardSummaryRequestedPayloadSchema,
+  aiBoardBlueprintRequestedPayloadSchema,
   aiThreadToCardRequestedPayloadSchema,
   aiJobAcceptedSchema,
+  boardBlueprintSchema,
+  boardBlueprintResultSchema,
+  confirmBoardBlueprintInputSchema,
+  boardBlueprintConfirmResponseSchema,
   cardSummaryResultSchema,
   confirmThreadToCardInputSchema,
   authContextSchema,
@@ -30,6 +35,7 @@ import {
   dailyStandupOutputSchema,
   moveCardInputSchema,
   queueCardCoverInputSchema,
+  queueBoardBlueprintInputSchema,
   queueWeeklyRecapInputSchema,
   queueDailyStandupInputSchema,
   outboxEventSchema,
@@ -155,6 +161,9 @@ test("contracts: validates ai queue inputs and accepted response", () => {
     question: "What is blocking release?",
     topK: 6
   });
+  const boardBlueprintQueue = queueBoardBlueprintInputSchema.parse({
+    prompt: "Generate a simple product launch board."
+  });
   const recap = queueWeeklyRecapInputSchema.parse({
     lookbackDays: 7,
     styleHint: "crisp, executive-friendly"
@@ -212,6 +221,7 @@ test("contracts: validates ai queue inputs and accepted response", () => {
 
   assert.equal(summarize.reason, "Prioritize blockers.");
   assert.equal(ask.topK, 6);
+  assert.equal(boardBlueprintQueue.prompt, "Generate a simple product launch board.");
   assert.equal(recap.lookbackDays, 7);
   assert.equal(standup.lookbackHours, 24);
   assert.equal(recapResult.recap?.summary, "Week recap summary");
@@ -498,4 +508,60 @@ test("contracts: validates discord thread-to-card payloads", () => {
   assert.equal(status.jobId, "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a");
   assert.equal(confirm.title, "Create release action card");
   assert.equal(confirmPayload.description, "Use extracted checklist and assignees.");
+});
+
+test("contracts: validates board blueprint payloads", () => {
+  const payload = aiBoardBlueprintRequestedPayloadSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    actorUserId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+    prompt: "Generate a launch board blueprint."
+  });
+
+  const blueprint = boardBlueprintSchema.parse({
+    title: "Launch Plan",
+    description: "A simple launch board",
+    lists: [
+      {
+        title: "Todo",
+        cards: [
+          { title: "Define launch goals" },
+          { title: "Draft announcement copy", labels: [{ name: "marketing", color: "purple" }] }
+        ]
+      }
+    ]
+  });
+
+  const status = boardBlueprintResultSchema.parse({
+    jobId: payload.jobId,
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    requesterUserId: payload.actorUserId,
+    prompt: payload.prompt,
+    status: "completed",
+    blueprint,
+    createdBoardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    updatedAt: new Date().toISOString()
+  });
+
+  const confirmInput = confirmBoardBlueprintInputSchema.parse({
+    title: "Launch Plan v2",
+    description: null
+  });
+
+  const confirmResponse = boardBlueprintConfirmResponseSchema.parse({
+    created: true,
+    board: {
+      id: status.createdBoardId,
+      orgId: status.orgId,
+      title: confirmInput.title,
+      version: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  });
+
+  assert.equal(payload.prompt, "Generate a launch board blueprint.");
+  assert.equal(blueprint.lists.length, 1);
+  assert.equal(status.status, "completed");
+  assert.equal(confirmInput.description, null);
+  assert.equal(confirmResponse.created, true);
 });

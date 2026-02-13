@@ -1,8 +1,11 @@
 import type {
   AskBoardResult,
   Board,
+  BoardBlueprint,
+  BoardBlueprintResult,
   BoardStuckReportResult,
   Card,
+  CardSearchHit,
   CardChecklistItem,
   CardCoverResult,
   CardLabel,
@@ -116,6 +119,19 @@ export interface UpsertAskBoardRequestParams {
   updatedAt: string;
 }
 
+export interface UpsertBoardBlueprintRequestParams {
+  id: string;
+  orgId: string;
+  requesterUserId: string;
+  prompt: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  blueprintJson?: BoardBlueprint;
+  createdBoardId?: string;
+  sourceEventId?: string;
+  failureReason?: string;
+  updatedAt: string;
+}
+
 export interface UpsertCardCoverParams {
   cardId: string;
   orgId: string;
@@ -198,6 +214,7 @@ export interface KanbanMutationContext {
   moveCard(input: MoveCardParams): Promise<Card>;
   upsertCardSummary(input: UpsertCardSummaryParams): Promise<void>;
   upsertAskBoardRequest(input: UpsertAskBoardRequestParams): Promise<void>;
+  upsertBoardBlueprintRequest(input: UpsertBoardBlueprintRequestParams): Promise<void>;
   upsertCardCover(input: UpsertCardCoverParams): Promise<void>;
   upsertWeeklyRecap(input: UpsertWeeklyRecapParams): Promise<void>;
   upsertDailyStandup(input: UpsertDailyStandupParams): Promise<void>;
@@ -213,12 +230,18 @@ export interface KanbanRepository {
   findCardSummaryByCardId(cardId: string): Promise<CardSummaryResult | null>;
   findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null>;
   findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null>;
+  findBoardBlueprintResultByJobId(jobId: string): Promise<BoardBlueprintResult | null>;
   findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null>;
   findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null>;
   findBoardStuckReportByBoardId(boardId: string): Promise<BoardStuckReportResult | null>;
   findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null>;
   listListsByBoardId(boardId: string): Promise<KanbanList[]>;
   listCardsByBoardId(boardId: string): Promise<Card[]>;
+  searchCardsByBoardId(
+    boardId: string,
+    query: string,
+    options?: { limit?: number; offset?: number }
+  ): Promise<CardSearchHit[]>;
   runInTransaction<T>(
     execute: (ctx: KanbanMutationContext) => Promise<T>
   ): Promise<T>;

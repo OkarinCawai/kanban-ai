@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import { NestFactory } from "@nestjs/core";
 
 import { WorkerModule } from "./app.module.js";
+import { captureException, flushSentry, initSentry } from "./sentry.js";
 
 const parsePort = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value ?? String(fallback));
@@ -27,6 +28,7 @@ const closeServer = (server: ReturnType<typeof createServer>): Promise<void> =>
   });
 
 async function bootstrap(): Promise<void> {
+  initSentry();
   const app = await NestFactory.createApplicationContext(WorkerModule);
   const port = parsePort(process.env.WORKER_PORT, 3004);
 
@@ -68,6 +70,7 @@ async function bootstrap(): Promise<void> {
     process.stdout.write(`Worker shutting down (${signal})...\n`);
 
     try {
+      await flushSentry().catch(() => undefined);
       await closeServer(healthServer);
       await app.close();
     } finally {
@@ -80,6 +83,8 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap().catch((error) => {
+  captureException(error, { stage: "bootstrap" });
+  void flushSentry().catch(() => undefined);
   process.stderr.write(
     `Worker bootstrap failed: ${error instanceof Error ? error.message : String(error)}\n`
   );

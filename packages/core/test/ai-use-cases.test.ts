@@ -4,9 +4,11 @@ import test from "node:test";
 import type {
   AskBoardResult,
   Board,
+  BoardBlueprintResult,
   BoardStuckReportResult,
   Card,
   CardCoverResult,
+  CardSearchHit,
   CardSummaryResult,
   DailyStandupResult,
   KanbanList,
@@ -30,6 +32,7 @@ class FakeRepository implements KanbanRepository {
   private cardSummaries = new Map<string, CardSummaryResult>();
   private cardCovers = new Map<string, CardCoverResult>();
   private askResults = new Map<string, AskBoardResult>();
+  private boardBlueprintResults = new Map<string, BoardBlueprintResult>();
   private weeklyRecaps = new Map<string, WeeklyRecapResult>();
   private dailyStandups = new Map<string, DailyStandupResult>();
   private stuckReports = new Map<string, BoardStuckReportResult>();
@@ -58,6 +61,10 @@ class FakeRepository implements KanbanRepository {
 
   seedAskResult(result: AskBoardResult): void {
     this.askResults.set(result.jobId, result);
+  }
+
+  seedBoardBlueprintResult(result: BoardBlueprintResult): void {
+    this.boardBlueprintResults.set(result.jobId, result);
   }
 
   seedThreadResult(result: ThreadToCardResult): void {
@@ -100,6 +107,10 @@ class FakeRepository implements KanbanRepository {
     return this.askResults.get(jobId) ?? null;
   }
 
+  async findBoardBlueprintResultByJobId(jobId: string): Promise<BoardBlueprintResult | null> {
+    return this.boardBlueprintResults.get(jobId) ?? null;
+  }
+
   async findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null> {
     return this.weeklyRecaps.get(boardId) ?? null;
   }
@@ -124,28 +135,79 @@ class FakeRepository implements KanbanRepository {
     return [];
   }
 
+  async searchCardsByBoardId(_boardId: string, _query: string): Promise<CardSearchHit[]> {
+    return [];
+  }
+
   async runInTransaction<T>(
     execute: (ctx: KanbanMutationContext) => Promise<T>
   ): Promise<T> {
     const snapshot = {
+      boards: new Map(this.boards),
+      lists: new Map(this.lists),
+      cards: new Map(this.cards),
       outbox: [...this.outbox],
       cardSummaries: new Map(this.cardSummaries),
       cardCovers: new Map(this.cardCovers),
       askResults: new Map(this.askResults),
+      boardBlueprintResults: new Map(this.boardBlueprintResults),
       weeklyRecaps: new Map(this.weeklyRecaps),
       dailyStandups: new Map(this.dailyStandups),
       stuckReports: new Map(this.stuckReports),
       threadResults: new Map(this.threadResults)
     };
     const tx: KanbanMutationContext = {
-      createBoard: async () => {
-        throw new Error("Not implemented in this test repository.");
+      createBoard: async (input) => {
+        const next: Board = {
+          id: input.id,
+          orgId: input.orgId,
+          title: input.title,
+          description: input.description,
+          version: 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt
+        };
+        this.boards.set(next.id, next);
+        return next;
       },
-      createList: async () => {
-        throw new Error("Not implemented in this test repository.");
+      createList: async (input) => {
+        const next: KanbanList = {
+          id: input.id,
+          orgId: input.orgId,
+          boardId: input.boardId,
+          title: input.title,
+          position: input.position,
+          version: 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt
+        };
+        this.lists.set(next.id, next);
+        return next;
       },
-      createCard: async () => {
-        throw new Error("Not implemented in this test repository.");
+      createCard: async (input) => {
+        const next: Card = {
+          id: input.id,
+          orgId: input.orgId,
+          boardId: input.boardId,
+          listId: input.listId,
+          title: input.title,
+          description: input.description,
+          startAt: input.startAt,
+          dueAt: input.dueAt,
+          locationText: input.locationText,
+          locationUrl: input.locationUrl,
+          assigneeUserIds: input.assigneeUserIds ?? [],
+          labels: input.labels ?? [],
+          checklist: input.checklist ?? [],
+          commentCount: input.commentCount ?? 0,
+          attachmentCount: input.attachmentCount ?? 0,
+          position: input.position,
+          version: 0,
+          createdAt: input.createdAt,
+          updatedAt: input.createdAt
+        };
+        this.cards.set(next.id, next);
+        return next;
       },
       updateCard: async () => {
         throw new Error("Not implemented in this test repository.");
@@ -169,6 +231,20 @@ class FakeRepository implements KanbanRepository {
           topK: input.topK,
           status: input.status,
           answer: input.answerJson as AskBoardResult["answer"] | undefined,
+          updatedAt: input.updatedAt
+        });
+      },
+      upsertBoardBlueprintRequest: async (input) => {
+        this.boardBlueprintResults.set(input.id, {
+          jobId: input.id,
+          orgId: input.orgId,
+          requesterUserId: input.requesterUserId,
+          prompt: input.prompt,
+          status: input.status,
+          blueprint: input.blueprintJson,
+          createdBoardId: input.createdBoardId,
+          sourceEventId: input.sourceEventId,
+          failureReason: input.failureReason,
           updatedAt: input.updatedAt
         });
       },
@@ -247,10 +323,14 @@ class FakeRepository implements KanbanRepository {
     try {
       return await execute(tx);
     } catch (error) {
+      this.boards = snapshot.boards;
+      this.lists = snapshot.lists;
+      this.cards = snapshot.cards;
       this.outbox = snapshot.outbox;
       this.cardSummaries = snapshot.cardSummaries;
       this.cardCovers = snapshot.cardCovers;
       this.askResults = snapshot.askResults;
+      this.boardBlueprintResults = snapshot.boardBlueprintResults;
       this.weeklyRecaps = snapshot.weeklyRecaps;
       this.dailyStandups = snapshot.dailyStandups;
       this.stuckReports = snapshot.stuckReports;
@@ -366,6 +446,113 @@ test("core-ai: queue ask-board writes ai outbox event", async () => {
   assert.equal(repository.getOutbox().length, 1);
   assert.equal(repository.getOutbox()[0]?.type, "ai.ask-board.requested");
   assert.equal(repository.getOutbox()[0]?.payload.topK, 8);
+});
+
+test("core-ai: queue board blueprint writes ai outbox event and persists queued state", async () => {
+  const repository = new FakeRepository();
+  const useCases = createUseCases(repository);
+
+  const accepted = await useCases.queueBoardBlueprint(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    { prompt: "Generate a launch board." }
+  );
+
+  assert.equal(accepted.eventType, "ai.board-blueprint.requested");
+  assert.equal(repository.getOutbox().length, 1);
+  assert.equal(repository.getOutbox()[0]?.type, "ai.board-blueprint.requested");
+  assert.equal(repository.getOutbox()[0]?.boardId, null);
+
+  const status = await useCases.getBoardBlueprintResult(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "viewer"
+    },
+    accepted.jobId
+  );
+
+  assert.equal(status.status, "queued");
+  assert.equal(status.prompt, "Generate a launch board.");
+});
+
+test("core-ai: viewer cannot queue board blueprint", async () => {
+  const repository = new FakeRepository();
+  const useCases = createUseCases(repository);
+
+  await assert.rejects(
+    () =>
+      useCases.queueBoardBlueprint(
+        {
+          userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+          orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+          role: "viewer"
+        },
+        { prompt: "Blocked." }
+      ),
+    ForbiddenError
+  );
+});
+
+test("core-ai: confirm board blueprint creates board and stores createdBoardId", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoardBlueprintResult({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    requesterUserId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+    prompt: "Generate a launch board.",
+    status: "completed",
+    blueprint: {
+      title: "Launch Plan",
+      lists: [
+        { title: "Todo", cards: [{ title: "Define launch goals" }] },
+        { title: "Doing", cards: [{ title: "Draft announcement copy" }] }
+      ]
+    },
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const confirmed1 = await useCases.confirmBoardBlueprint(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    {}
+  );
+
+  assert.equal(confirmed1.created, true);
+  assert.equal(confirmed1.board.title, "Launch Plan");
+
+  const status = await useCases.getBoardBlueprintResult(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "viewer"
+    },
+    "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a"
+  );
+
+  assert.equal(status.createdBoardId, confirmed1.board.id);
+
+  const confirmed2 = await useCases.confirmBoardBlueprint(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    {}
+  );
+
+  assert.equal(confirmed2.created, false);
+  assert.equal(confirmed2.board.id, confirmed1.board.id);
 });
 
 test("core-ai: viewer cannot queue weekly recap", async () => {

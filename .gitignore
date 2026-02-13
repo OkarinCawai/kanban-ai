@@ -35,3 +35,5 @@ dev_stack_state.json
 Thumbs.db
 .idea/
 .vscode/
+.codex/
+.cursor/

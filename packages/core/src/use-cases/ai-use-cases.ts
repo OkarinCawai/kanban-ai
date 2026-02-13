@@ -1,15 +1,19 @@
 import {
   askBoardResultSchema,
   aiJobAcceptedSchema,
+  boardBlueprintConfirmResponseSchema,
+  boardBlueprintResultSchema,
   cardSummaryResultSchema,
   cardCoverResultSchema,
   coverJobAcceptedSchema,
   askBoardInputSchema,
+  confirmBoardBlueprintInputSchema,
   confirmThreadToCardInputSchema,
   dailyStandupResultSchema,
   outboxEventTypeSchema,
   queueCardSummaryInputSchema,
   queueCardCoverInputSchema,
+  queueBoardBlueprintInputSchema,
   queueDailyStandupInputSchema,
   queueWeeklyRecapInputSchema,
   queueThreadToCardInputSchema,
@@ -268,6 +272,48 @@ export class AiUseCases {
     });
   }
 
+  async queueBoardBlueprint(
+    context: RequestContext,
+    input: unknown
+  ) {
+    ensureCanWrite(context);
+    const parsed = parseOrThrow(queueBoardBlueprintInputSchema, input);
+
+    const now = this.deps.clock.nowIso();
+    const jobId = this.deps.idGenerator.next("evt");
+
+    await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertBoardBlueprintRequest({
+        id: jobId,
+        orgId: context.orgId,
+        requesterUserId: context.userId,
+        prompt: parsed.prompt,
+        status: "queued",
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: jobId,
+        type: outboxEventTypeSchema.parse("ai.board-blueprint.requested"),
+        orgId: context.orgId,
+        boardId: null,
+        payload: {
+          jobId,
+          actorUserId: context.userId,
+          prompt: parsed.prompt
+        },
+        createdAt: now
+      });
+    });
+
+    return aiJobAcceptedSchema.parse({
+      jobId,
+      eventType: "ai.board-blueprint.requested",
+      status: "queued",
+      queuedAt: now
+    });
+  }
+
   async queueWeeklyRecap(
     context: RequestContext,
     boardId: string,
@@ -487,6 +533,18 @@ export class AiUseCases {
     return askBoardResultSchema.parse(completed);
   }
 
+  async getBoardBlueprintResult(
+    context: RequestContext,
+    jobId: string
+  ) {
+    const result = await this.deps.repository.findBoardBlueprintResultByJobId(jobId);
+    if (!result || result.orgId !== context.orgId) {
+      throw new NotFoundError("Board blueprint request was not found.");
+    }
+
+    return boardBlueprintResultSchema.parse(result);
+  }
+
   async getWeeklyRecap(
     context: RequestContext,
     boardId: string
@@ -553,6 +611,151 @@ export class AiUseCases {
     }
 
     return threadToCardResultSchema.parse(result);
+  }
+
+  async confirmBoardBlueprint(
+    context: RequestContext,
+    jobId: string,
+    input: unknown
+  ) {
+    ensureCanWrite(context);
+    const parsed = parseOrThrow(confirmBoardBlueprintInputSchema, input ?? {});
+
+    const request = await this.deps.repository.findBoardBlueprintResultByJobId(jobId);
+    if (!request || request.orgId !== context.orgId) {
+      throw new NotFoundError("Board blueprint request was not found.");
+    }
+
+    if (request.createdBoardId) {
+      const existing = await this.deps.repository.findBoardById(request.createdBoardId);
+      if (!existing || existing.orgId !== context.orgId) {
+        throw new NotFoundError("Generated board was not found.");
+      }
+
+      return boardBlueprintConfirmResponseSchema.parse({
+        created: false,
+        board: existing
+      });
+    }
+
+    if (request.status !== "completed" || !request.blueprint) {
+      throw new ValidationError("Board blueprint is not ready for confirmation.");
+    }
+
+    const blueprint = request.blueprint;
+    const now = this.deps.clock.nowIso();
+    const boardId = this.deps.idGenerator.next("board");
+    const boardEventId = this.deps.idGenerator.next("evt");
+    const nextTitle = parsed.title ?? blueprint.title;
+    const nextDescription =
+      parsed.description === null
+        ? undefined
+        : (parsed.description ?? blueprint.description);
+
+    const createdBoard = await this.deps.repository.runInTransaction(async (tx) => {
+      const board = await tx.createBoard({
+        id: boardId,
+        orgId: context.orgId,
+        title: nextTitle,
+        description: nextDescription,
+        createdAt: now
+      });
+
+      await tx.appendOutbox({
+        id: boardEventId,
+        type: outboxEventTypeSchema.parse("board.created"),
+        orgId: context.orgId,
+        boardId: board.id,
+        payload: {
+          boardId: board.id,
+          actorUserId: context.userId
+        },
+        createdAt: now
+      });
+
+      for (const [listIndex, listDraft] of blueprint.lists.entries()) {
+        const listId = this.deps.idGenerator.next("list");
+        const listEventId = this.deps.idGenerator.next("evt");
+        const listPosition = listIndex * 1024;
+
+        const list = await tx.createList({
+          id: listId,
+          orgId: context.orgId,
+          boardId: board.id,
+          title: listDraft.title,
+          position: listPosition,
+          createdAt: now
+        });
+
+        await tx.appendOutbox({
+          id: listEventId,
+          type: outboxEventTypeSchema.parse("list.created"),
+          orgId: context.orgId,
+          boardId: board.id,
+          payload: {
+            listId: list.id,
+            actorUserId: context.userId
+          },
+          createdAt: now
+        });
+
+        for (const [cardIndex, cardDraft] of listDraft.cards.entries()) {
+          const cardId = this.deps.idGenerator.next("card");
+          const cardEventId = this.deps.idGenerator.next("evt");
+          const position = cardIndex * 1024;
+
+          const card = await tx.createCard({
+            id: cardId,
+            orgId: context.orgId,
+            boardId: board.id,
+            listId: list.id,
+            title: cardDraft.title,
+            description: cardDraft.description,
+            labels:
+              normalizeLabels(
+                cardDraft.labels,
+                () => this.deps.idGenerator.next("label")
+              ) ?? [],
+            checklist: [],
+            commentCount: 0,
+            attachmentCount: 0,
+            position,
+            createdAt: now
+          });
+
+          await tx.appendOutbox({
+            id: cardEventId,
+            type: outboxEventTypeSchema.parse("card.created"),
+            orgId: context.orgId,
+            boardId: board.id,
+            payload: {
+              cardId: card.id,
+              actorUserId: context.userId
+            },
+            createdAt: now
+          });
+        }
+      }
+
+      await tx.upsertBoardBlueprintRequest({
+        id: request.jobId,
+        orgId: request.orgId,
+        requesterUserId: request.requesterUserId,
+        prompt: request.prompt,
+        status: "completed",
+        blueprintJson: blueprint,
+        createdBoardId: board.id,
+        sourceEventId: request.sourceEventId,
+        updatedAt: now
+      });
+
+      return board;
+    });
+
+    return boardBlueprintConfirmResponseSchema.parse({
+      created: true,
+      board: createdBoard
+    });
   }
 
   async confirmThreadToCard(

@@ -74,6 +74,15 @@ export class AiService {
     );
   }
 
+  async queueBoardBlueprint(
+    context: RequestContext,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueBoardBlueprint(context, payload))
+    );
+  }
+
   async queueWeeklyRecap(
     context: RequestContext,
     boardId: string,
@@ -122,6 +131,15 @@ export class AiService {
     );
   }
 
+  async getBoardBlueprintResult(
+    context: RequestContext,
+    jobId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getBoardBlueprintResult(context, jobId))
+    );
+  }
+
   async getWeeklyRecap(
     context: RequestContext,
     boardId: string
@@ -165,6 +183,16 @@ export class AiService {
   ) {
     return this.runAsContext(context, () =>
       this.execute(() => this.useCases.confirmThreadToCard(context, jobId, payload))
+    );
+  }
+
+  async confirmBoardBlueprint(
+    context: RequestContext,
+    jobId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.confirmBoardBlueprint(context, jobId, payload))
     );
   }
 

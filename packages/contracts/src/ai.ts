@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { cardLabelColorSchema } from "./kanban.js";
+import { boardSchema, cardLabelColorSchema } from "./kanban.js";
 
 const nonEmptyString = z.string().trim().min(1);
 const uuidString = z.string().uuid();
@@ -24,9 +24,14 @@ export const queueDailyStandupInputSchema = z.object({
   styleHint: z.string().trim().max(200).optional()
 });
 
+export const queueBoardBlueprintInputSchema = z.object({
+  prompt: nonEmptyString.max(4_000)
+});
+
 export const aiEventTypeSchema = z.enum([
   "ai.card-summary.requested",
   "ai.ask-board.requested",
+  "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested"
@@ -59,6 +64,12 @@ export const aiAskBoardRequestedPayloadSchema = z.object({
   actorUserId: uuidString,
   question: nonEmptyString.max(4_000),
   topK: z.number().int().positive().max(20)
+});
+
+export const aiBoardBlueprintRequestedPayloadSchema = z.object({
+  jobId: uuidString,
+  actorUserId: uuidString,
+  prompt: nonEmptyString.max(4_000)
 });
 
 export const queueThreadToCardInputSchema = z.object({
@@ -181,6 +192,23 @@ export const threadToCardLabelSchema = z.object({
   color: cardLabelColorSchema
 });
 
+export const boardBlueprintCardSchema = z.object({
+  title: nonEmptyString.max(200),
+  description: z.string().max(10_000).optional(),
+  labels: z.array(threadToCardLabelSchema).max(10).optional()
+});
+
+export const boardBlueprintListSchema = z.object({
+  title: nonEmptyString.max(80),
+  cards: z.array(boardBlueprintCardSchema).max(50)
+});
+
+export const boardBlueprintSchema = z.object({
+  title: nonEmptyString.max(200),
+  description: z.string().max(2_000).optional(),
+  lists: z.array(boardBlueprintListSchema).min(1).max(12)
+});
+
 export const geminiThreadToCardOutputSchema = z.object({
   title: nonEmptyString.max(200),
   description: z.string().max(10_000).optional(),
@@ -235,6 +263,52 @@ export const threadToCardResultSchema = z
 export const confirmThreadToCardInputSchema = z.object({
   title: nonEmptyString.max(200).optional(),
   description: z.string().max(10_000).nullable().optional()
+});
+
+export const boardBlueprintResultSchema = z
+  .object({
+    jobId: uuidString,
+    orgId: uuidString,
+    requesterUserId: uuidString,
+    prompt: nonEmptyString.max(4_000),
+    status: aiJobStatusSchema,
+    blueprint: boardBlueprintSchema.optional(),
+    createdBoardId: uuidString.optional(),
+    sourceEventId: uuidString.optional(),
+    failureReason: z.string().max(1_000).optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.blueprint) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed board blueprint results require blueprint payload."
+      });
+    }
+
+    if (value.createdBoardId && value.status !== "completed") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "createdBoardId is only valid when status is completed."
+      });
+    }
+
+    if (value.status === "failed" && !value.failureReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Failed board blueprint results require failureReason."
+      });
+    }
+  });
+
+export const confirmBoardBlueprintInputSchema = z.object({
+  title: nonEmptyString.max(200).optional(),
+  description: z.string().max(2_000).nullable().optional()
+});
+
+export const boardBlueprintConfirmResponseSchema = z.object({
+  created: z.boolean(),
+  board: boardSchema
 });
 
 export const cardSummaryResultSchema = z
@@ -330,6 +404,7 @@ export type QueueCardSummaryInput = z.infer<typeof queueCardSummaryInputSchema>;
 export type AskBoardInput = z.infer<typeof askBoardInputSchema>;
 export type QueueWeeklyRecapInput = z.infer<typeof queueWeeklyRecapInputSchema>;
 export type QueueDailyStandupInput = z.infer<typeof queueDailyStandupInputSchema>;
+export type QueueBoardBlueprintInput = z.infer<typeof queueBoardBlueprintInputSchema>;
 export type AiEventType = z.infer<typeof aiEventTypeSchema>;
 export type AiJobStatus = z.infer<typeof aiJobStatusSchema>;
 export type AiJobAccepted = z.infer<typeof aiJobAcceptedSchema>;
@@ -338,6 +413,9 @@ export type AiCardSummaryRequestedPayload = z.infer<
 >;
 export type AiAskBoardRequestedPayload = z.infer<
   typeof aiAskBoardRequestedPayloadSchema
+>;
+export type AiBoardBlueprintRequestedPayload = z.infer<
+  typeof aiBoardBlueprintRequestedPayloadSchema
 >;
 export type QueueThreadToCardInput = z.infer<typeof queueThreadToCardInputSchema>;
 export type AiThreadToCardRequestedPayload = z.infer<
@@ -353,6 +431,7 @@ export type GeminiCardSummaryOutput = z.infer<typeof geminiCardSummaryOutputSche
 export type GeminiAskBoardModelOutput = z.infer<typeof geminiAskBoardModelOutputSchema>;
 export type GeminiAskBoardOutput = z.infer<typeof geminiAskBoardOutputSchema>;
 export type GeminiThreadToCardOutput = z.infer<typeof geminiThreadToCardOutputSchema>;
+export type BoardBlueprint = z.infer<typeof boardBlueprintSchema>;
 export type WeeklyRecapOutput = z.infer<typeof weeklyRecapOutputSchema>;
 export type DailyStandupOutput = z.infer<typeof dailyStandupOutputSchema>;
 export type CardSummaryResult = z.infer<typeof cardSummaryResultSchema>;
@@ -362,3 +441,8 @@ export type DailyStandupResult = z.infer<typeof dailyStandupResultSchema>;
 export type ThreadToCardDraft = z.infer<typeof threadToCardDraftSchema>;
 export type ThreadToCardResult = z.infer<typeof threadToCardResultSchema>;
 export type ConfirmThreadToCardInput = z.infer<typeof confirmThreadToCardInputSchema>;
+export type BoardBlueprintResult = z.infer<typeof boardBlueprintResultSchema>;
+export type ConfirmBoardBlueprintInput = z.infer<typeof confirmBoardBlueprintInputSchema>;
+export type BoardBlueprintConfirmResponse = z.infer<
+  typeof boardBlueprintConfirmResponseSchema
+>;
