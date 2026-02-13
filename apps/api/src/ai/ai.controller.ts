@@ -44,6 +44,16 @@ export class AiController {
     return this.aiService.queueAskBoard(context, body);
   }
 
+  @Post("boards/:boardId/search/semantic")
+  async queueSemanticCardSearch(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("boardId", new ParseUUIDPipe()) boardId: string,
+    @Body() body: unknown
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.queueCardSemanticSearch(context, boardId, body);
+  }
+
   @Post("ai/board-blueprint")
   async queueBoardBlueprint(
     @Headers() headers: Record<string, string | string[] | undefined>,
@@ -98,6 +108,16 @@ export class AiController {
   ) {
     const context = await toRequestContext(headers);
     return this.aiService.getAskBoardResult(context, jobId);
+  }
+
+  @Get("boards/:boardId/search/semantic/:jobId")
+  async getSemanticCardSearchResult(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("boardId", new ParseUUIDPipe()) boardId: string,
+    @Param("jobId", new ParseUUIDPipe()) jobId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.getCardSemanticSearchResult(context, boardId, jobId);
   }
 
   @Get("ai/board-blueprint/:jobId")

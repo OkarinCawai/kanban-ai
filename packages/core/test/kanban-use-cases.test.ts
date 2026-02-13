@@ -62,6 +62,10 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findCardSemanticSearchResultByJobId(_jobId: string): Promise<null> {
+    return null;
+  }
+
   async findBoardBlueprintResultByJobId(_jobId: string): Promise<null> {
     return null;
   }
@@ -241,6 +245,9 @@ class FakeRepository implements KanbanRepository {
         // Not used in Kanban use-case tests.
       },
       upsertAskBoardRequest: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertCardSemanticSearchRequest: async () => {
         // Not used in Kanban use-case tests.
       },
       upsertBoardBlueprintRequest: async () => {

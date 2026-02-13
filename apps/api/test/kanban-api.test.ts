@@ -246,6 +246,33 @@ test("api: ask-board enqueues ai outbox event", async () => {
   }
 });
 
+test("api: semantic card search enqueues ai outbox event", async () => {
+  const { app, repository } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+    const boardId = boardResponse.body.id as string;
+
+    const response = await request(app.getHttpServer())
+      .post(`/boards/${boardId}/search/semantic`)
+      .set(viewerHeaders)
+      .send({ q: "urgent", topK: 10 });
+
+    assert.equal(response.status, 201);
+    assert.equal(response.body.status, "queued");
+    assert.equal(response.body.eventType, "ai.card-semantic-search.requested");
+
+    const lastEvent = repository.getOutboxEvents().at(-1);
+    assert.equal(lastEvent?.type, "ai.card-semantic-search.requested");
+    assert.equal(lastEvent?.boardId, boardId);
+  } finally {
+    await app.close();
+  }
+});
+
 test("api: board blueprint enqueue enqueues ai outbox event", async () => {
   const { app, repository } = await createApp();
 
@@ -343,6 +370,36 @@ test("api: ask-board status returns queued persisted status before completion", 
     assert.equal(status.status, 200);
     assert.equal(status.body.status, "queued");
     assert.equal(status.body.jobId, queued.body.jobId);
+    assert.equal(status.body.topK, 6);
+  } finally {
+    await app.close();
+  }
+});
+
+test("api: semantic card search status returns queued persisted status before completion", async () => {
+  const { app } = await createApp();
+
+  try {
+    const boardResponse = await request(app.getHttpServer())
+      .post("/boards")
+      .set(authHeaders)
+      .send({ title: "Roadmap" });
+    const boardId = boardResponse.body.id as string;
+
+    const queued = await request(app.getHttpServer())
+      .post(`/boards/${boardId}/search/semantic`)
+      .set(viewerHeaders)
+      .send({ q: "blocked deploy", topK: 6 });
+
+    const status = await request(app.getHttpServer())
+      .get(`/boards/${boardId}/search/semantic/${queued.body.jobId}`)
+      .set(viewerHeaders);
+
+    assert.equal(status.status, 200);
+    assert.equal(status.body.status, "queued");
+    assert.equal(status.body.jobId, queued.body.jobId);
+    assert.equal(status.body.boardId, boardId);
+    assert.equal(status.body.q, "blocked deploy");
     assert.equal(status.body.topK, 6);
   } finally {
     await app.close();

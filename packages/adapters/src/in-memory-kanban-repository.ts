@@ -10,6 +10,7 @@ import type {
   DailyStandupResult,
   KanbanList,
   OutboxEvent,
+  SemanticCardSearchResult,
   WeeklyRecapResult,
   ThreadToCardResult
 } from "@kanban/contracts";
@@ -31,6 +32,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
   private cardSummaries = new Map<string, CardSummaryResult>();
   private cardCovers = new Map<string, CardCoverResult>();
   private askBoardResults = new Map<string, AskBoardResult>();
+  private cardSemanticSearchResults = new Map<string, SemanticCardSearchResult>();
   private boardBlueprintResults = new Map<string, BoardBlueprintResult>();
   private weeklyRecaps = new Map<string, WeeklyRecapResult>();
   private dailyStandups = new Map<string, DailyStandupResult>();
@@ -64,6 +66,10 @@ export class InMemoryKanbanRepository implements KanbanRepository {
 
   seedAskBoardResult(result: AskBoardResult): void {
     this.askBoardResults.set(result.jobId, clone(result));
+  }
+
+  seedCardSemanticSearchResult(result: SemanticCardSearchResult): void {
+    this.cardSemanticSearchResults.set(result.jobId, clone(result));
   }
 
   seedBoardBlueprintResult(result: BoardBlueprintResult): void {
@@ -113,6 +119,13 @@ export class InMemoryKanbanRepository implements KanbanRepository {
 
   async findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null> {
     const result = this.askBoardResults.get(jobId);
+    return result ? clone(result) : null;
+  }
+
+  async findCardSemanticSearchResultByJobId(
+    jobId: string
+  ): Promise<SemanticCardSearchResult | null> {
+    const result = this.cardSemanticSearchResults.get(jobId);
     return result ? clone(result) : null;
   }
 
@@ -216,6 +229,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       cardSummaries: new Map(this.cardSummaries),
       cardCovers: new Map(this.cardCovers),
       askBoardResults: new Map(this.askBoardResults),
+      cardSemanticSearchResults: new Map(this.cardSemanticSearchResults),
       boardBlueprintResults: new Map(this.boardBlueprintResults),
       weeklyRecaps: new Map(this.weeklyRecaps),
       dailyStandups: new Map(this.dailyStandups),
@@ -383,6 +397,21 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           })
         );
       },
+      upsertCardSemanticSearchRequest: async (input) => {
+        this.cardSemanticSearchResults.set(
+          input.id,
+          clone({
+            jobId: input.id,
+            boardId: input.boardId,
+            q: input.queryText,
+            topK: input.topK,
+            status: input.status,
+            hits: input.hitsJson as SemanticCardSearchResult["hits"] | undefined,
+            failureReason: input.failureReason,
+            updatedAt: input.updatedAt
+          })
+        );
+      },
       upsertBoardBlueprintRequest: async (input) => {
         const existing = this.boardBlueprintResults.get(input.id);
         const next: BoardBlueprintResult = {
@@ -514,6 +543,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       this.cardSummaries = snapshot.cardSummaries;
       this.cardCovers = snapshot.cardCovers;
       this.askBoardResults = snapshot.askBoardResults;
+      this.cardSemanticSearchResults = snapshot.cardSemanticSearchResults;
       this.boardBlueprintResults = snapshot.boardBlueprintResults;
       this.weeklyRecaps = snapshot.weeklyRecaps;
       this.dailyStandups = snapshot.dailyStandups;

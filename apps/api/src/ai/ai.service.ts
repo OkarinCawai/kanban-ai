@@ -74,6 +74,16 @@ export class AiService {
     );
   }
 
+  async queueCardSemanticSearch(
+    context: RequestContext,
+    boardId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueCardSemanticSearch(context, boardId, payload))
+    );
+  }
+
   async queueBoardBlueprint(
     context: RequestContext,
     payload: unknown
@@ -128,6 +138,16 @@ export class AiService {
   ) {
     return this.runAsContext(context, () =>
       this.execute(() => this.useCases.getAskBoardResult(context, jobId))
+    );
+  }
+
+  async getCardSemanticSearchResult(
+    context: RequestContext,
+    boardId: string,
+    jobId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getCardSemanticSearchResult(context, boardId, jobId))
     );
   }
 

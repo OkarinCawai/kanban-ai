@@ -34,7 +34,8 @@ export const aiEventTypeSchema = z.enum([
   "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
-  "ai.daily-standup.requested"
+  "ai.daily-standup.requested",
+  "ai.card-semantic-search.requested"
 ]);
 
 export const aiJobStatusSchema = z.enum([
@@ -64,6 +65,14 @@ export const aiAskBoardRequestedPayloadSchema = z.object({
   actorUserId: uuidString,
   question: nonEmptyString.max(4_000),
   topK: z.number().int().positive().max(20)
+});
+
+export const aiCardSemanticSearchRequestedPayloadSchema = z.object({
+  jobId: uuidString,
+  boardId: uuidString,
+  actorUserId: uuidString,
+  q: nonEmptyString.max(400),
+  topK: z.number().int().positive().max(50)
 });
 
 export const aiBoardBlueprintRequestedPayloadSchema = z.object({
@@ -413,6 +422,9 @@ export type AiCardSummaryRequestedPayload = z.infer<
 >;
 export type AiAskBoardRequestedPayload = z.infer<
   typeof aiAskBoardRequestedPayloadSchema
+>;
+export type AiCardSemanticSearchRequestedPayload = z.infer<
+  typeof aiCardSemanticSearchRequestedPayloadSchema
 >;
 export type AiBoardBlueprintRequestedPayload = z.infer<
   typeof aiBoardBlueprintRequestedPayloadSchema

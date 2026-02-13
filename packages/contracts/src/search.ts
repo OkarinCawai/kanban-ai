@@ -1,6 +1,9 @@
 import { z } from "zod";
 
+import { aiJobStatusSchema } from "./ai.js";
+
 const nonEmptyString = z.string().trim().min(1);
+const uuidString = z.string().uuid();
 const isoDateTimeString = z.string().datetime({ offset: true });
 
 const first = (value: unknown): unknown =>
@@ -25,7 +28,40 @@ export const searchCardsResponseSchema = z.object({
   hits: z.array(cardSearchHitSchema)
 });
 
+export const queueSemanticCardSearchInputSchema = z.object({
+  q: nonEmptyString.max(400),
+  topK: z.number().int().positive().max(50).optional()
+});
+
+export const semanticCardSearchResultSchema = z
+  .object({
+    jobId: uuidString,
+    boardId: uuidString,
+    q: nonEmptyString.max(400),
+    topK: z.number().int().positive().max(50),
+    status: aiJobStatusSchema,
+    hits: z.array(cardSearchHitSchema).max(50).optional(),
+    failureReason: z.string().max(1_000).optional(),
+    updatedAt: isoDateTimeString.optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.hits) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed semantic search results must include hits payload."
+      });
+    }
+
+    if (value.status === "failed" && !value.failureReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Failed semantic search results must include failureReason."
+      });
+    }
+  });
+
 export type SearchCardsQuery = z.infer<typeof searchCardsQuerySchema>;
 export type CardSearchHit = z.infer<typeof cardSearchHitSchema>;
 export type SearchCardsResponse = z.infer<typeof searchCardsResponseSchema>;
-
+export type QueueSemanticCardSearchInput = z.infer<typeof queueSemanticCardSearchInputSchema>;
+export type SemanticCardSearchResult = z.infer<typeof semanticCardSearchResultSchema>;

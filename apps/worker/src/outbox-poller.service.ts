@@ -4,6 +4,7 @@ import {
   aiAskBoardRequestedPayloadSchema,
   aiBoardBlueprintRequestedPayloadSchema,
   aiCardSummaryRequestedPayloadSchema,
+  aiCardSemanticSearchRequestedPayloadSchema,
   aiDailyStandupRequestedPayloadSchema,
   aiThreadToCardRequestedPayloadSchema,
   aiWeeklyRecapRequestedPayloadSchema,
@@ -15,6 +16,7 @@ import {
   type AiAskBoardRequestedPayload,
   type AiBoardBlueprintRequestedPayload,
   type AiCardSummaryRequestedPayload,
+  type AiCardSemanticSearchRequestedPayload,
   type AiDailyStandupRequestedPayload,
   type AiThreadToCardRequestedPayload,
   type AiWeeklyRecapRequestedPayload,
@@ -53,6 +55,7 @@ const OUTBOX_TYPES = [
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
+  "ai.card-semantic-search.requested",
   "cover.generate-spec.requested",
   "cover.render.requested",
   "hygiene.detect-stuck.requested"
@@ -65,6 +68,7 @@ const OUTBOX_TYPES_REQUIRING_GEMINI: ReadonlySet<(typeof OUTBOX_TYPES)[number]> 
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
+  "ai.card-semantic-search.requested",
   "cover.generate-spec.requested"
 ]);
 
@@ -140,6 +144,18 @@ type AskBoardRequestRow = {
   source_event_id: string | null;
 };
 
+type CardSemanticSearchRequestRow = {
+  id: string;
+  board_id: string;
+  requester_user_id: string;
+  query_text: string;
+  top_k: number;
+  status: string;
+  hits_json: unknown;
+  failure_reason: string | null;
+  source_event_id: string | null;
+};
+
 type BoardGenerationRequestRow = {
   id: string;
   org_id: string;
@@ -155,6 +171,15 @@ type RetrievedChunkRow = {
   source_type: string;
   source_id: string;
   excerpt: string;
+};
+
+type CardSemanticSearchHitRow = {
+  card_id: string;
+  list_id: string;
+  title: string;
+  snippet: string | null;
+  rank: number | string | null;
+  updated_at: string | Date;
 };
 
 type ExistingDocumentRow = {
@@ -248,6 +273,10 @@ type ParsedOutboxEvent =
   | {
       type: "ai.ask-board.requested";
       payload: AiAskBoardRequestedPayload;
+    }
+  | {
+      type: "ai.card-semantic-search.requested";
+      payload: AiCardSemanticSearchRequestedPayload;
     }
   | {
       type: "ai.board-blueprint.requested";
@@ -667,6 +696,13 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (row.type === "ai.card-semantic-search.requested") {
+      return {
+        type: row.type,
+        payload: aiCardSemanticSearchRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
     if (row.type === "ai.board-blueprint.requested") {
       return {
         type: row.type,
@@ -731,6 +767,11 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
 
     if (event.type === "ai.ask-board.requested") {
       await this.executeAskBoard(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "ai.card-semantic-search.requested") {
+      await this.executeCardSemanticSearch(client, row, event.payload);
       return;
     }
 
@@ -944,6 +985,128 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
             and org_id = $2::uuid
         `,
         [payload.jobId, row.org_id]
+      );
+
+      throw error;
+    }
+  }
+
+  private async executeCardSemanticSearch(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiCardSemanticSearchRequestedPayload
+  ): Promise<void> {
+    if (row.board_id && row.board_id !== payload.boardId) {
+      throw new Error(`Outbox board_id mismatch for semantic search event ${row.id}.`);
+    }
+
+    const requestResult = await client.query<CardSemanticSearchRequestRow>(
+      `
+        select
+          id,
+          board_id,
+          requester_user_id,
+          query_text,
+          top_k,
+          status,
+          hits_json,
+          failure_reason,
+          source_event_id
+        from public.card_semantic_search_requests
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.jobId, row.org_id]
+    );
+
+    const requestRow = requestResult.rows[0];
+    if (!requestRow) {
+      throw new Error(`Semantic search request ${payload.jobId} was not found.`);
+    }
+
+    if (requestRow.board_id !== payload.boardId) {
+      throw new Error(`Semantic search request ${payload.jobId} has mismatched board metadata.`);
+    }
+
+    if (requestRow.requester_user_id !== payload.actorUserId) {
+      throw new Error(`Semantic search request ${payload.jobId} has mismatched requester_user_id.`);
+    }
+
+    if (requestRow.query_text !== payload.q) {
+      throw new Error(`Semantic search request ${payload.jobId} has mismatched query.`);
+    }
+
+    if (requestRow.top_k !== payload.topK) {
+      throw new Error(`Semantic search request ${payload.jobId} has mismatched topK.`);
+    }
+
+    if (requestRow.status === "completed" && requestRow.hits_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.card_semantic_search_requests
+        set
+          status = 'processing',
+          hits_json = null,
+          failure_reason = null,
+          updated_at = now()
+        where id = $1::uuid
+          and org_id = $2::uuid
+      `,
+      [payload.jobId, row.org_id]
+    );
+
+    try {
+      const actorRole = await this.resolveActorRole(client, payload.actorUserId, row.org_id);
+      await this.syncBoardDocumentsCommitted(row.org_id, payload.boardId);
+
+      const queryEmbedding = await this.buildQuestionEmbedding(payload.q, row.id);
+
+      const hits = await this.retrieveSemanticCardHitsWithRls({
+        actorUserId: payload.actorUserId,
+        actorOrgId: row.org_id,
+        actorRole,
+        boardId: payload.boardId,
+        q: payload.q,
+        topK: payload.topK,
+        queryEmbedding
+      });
+
+      await client.query(
+        `
+          update public.card_semantic_search_requests
+          set
+            status = 'completed',
+            hits_json = $3::jsonb,
+            source_event_id = $4::uuid,
+            failure_reason = null,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.jobId, row.org_id, JSON.stringify(hits), row.id]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.card_semantic_search_requests
+          set
+            status = 'failed',
+            hits_json = null,
+            failure_reason = $3,
+            source_event_id = $4::uuid,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.jobId, row.org_id, failureReason, row.id]
       );
 
       throw error;
@@ -2328,6 +2491,143 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         embedding
       ]
     );
+  }
+
+  private async retrieveSemanticCardHitsWithRls(input: {
+    actorUserId: string;
+    actorOrgId: string;
+    actorRole: Role;
+    boardId: string;
+    q: string;
+    topK: number;
+    queryEmbedding: number[] | null;
+  }): Promise<
+    Array<{
+      cardId: string;
+      listId: string;
+      title: string;
+      snippet?: string;
+      rank?: number;
+      updatedAt: string;
+    }>
+  > {
+    if (!this.pool) {
+      throw new Error("Postgres pool is not initialized.");
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await client.query("set local role authenticated");
+      await client.query(
+        `
+          select
+            set_config('request.jwt.claim.sub', $1, true),
+            set_config('request.jwt.claim.org_id', $2, true),
+            set_config('request.jwt.claim.role', $3, true)
+        `,
+        [input.actorUserId, input.actorOrgId, input.actorRole]
+      );
+
+      const vectorRows = input.queryEmbedding
+        ? await client.query<CardSemanticSearchHitRow>(
+            `
+              with ranked_cards as (
+                select
+                  c.id as card_id,
+                  c.list_id,
+                  c.title,
+                  left(regexp_replace(coalesce(c.description, ''), '\\s+', ' ', 'g'), 200) as snippet,
+                  (
+                    select
+                      case
+                        when sqrt(sum(dv.value * dv.value)) = 0
+                          or sqrt(sum(qv.value * qv.value)) = 0
+                        then null
+                        else sum(dv.value * qv.value)
+                          / (sqrt(sum(dv.value * dv.value)) * sqrt(sum(qv.value * qv.value)))
+                      end
+                    from unnest(de.embedding) with ordinality as dv(value, idx)
+                    inner join unnest($4::real[]) with ordinality as qv(value, idx)
+                      on qv.idx = dv.idx
+                  ) as rank,
+                  c.updated_at
+                from public.document_embeddings de
+                inner join public.document_chunks dc on dc.id = de.chunk_id
+                inner join public.documents d on d.id = dc.document_id
+                inner join public.cards c on c.id::text = d.source_id
+                where de.org_id = $1::uuid
+                  and de.board_id = $2::uuid
+                  and de.model = $5
+                  and d.source_type = 'card'
+                  and array_length(de.embedding, 1) = array_length($4::real[], 1)
+              )
+              select card_id, list_id, title, snippet, rank, updated_at
+              from ranked_cards
+              order by rank desc nulls last, updated_at desc, card_id asc
+              limit $3
+            `,
+            [
+              input.actorOrgId,
+              input.boardId,
+              input.topK,
+              input.queryEmbedding,
+              this.embeddingModel
+            ]
+          )
+        : { rows: [] };
+
+      const fallbackRows =
+        vectorRows.rows.length > 0
+          ? vectorRows.rows
+          : (
+              await client.query<CardSemanticSearchHitRow>(
+                `
+                  with q as (
+                    select websearch_to_tsquery('english', $2) as query
+                  )
+                  select
+                    c.id as card_id,
+                    c.list_id,
+                    c.title,
+                    left(regexp_replace(coalesce(c.description, ''), '\\s+', ' ', 'g'), 200) as snippet,
+                    ts_rank_cd(c.search_tsv, q.query) as rank,
+                    c.updated_at
+                  from public.cards c, q
+                  where c.board_id = $1::uuid
+                    and c.search_tsv @@ q.query
+                  order by rank desc, c.updated_at desc, c.id asc
+                  limit $3::int
+                `,
+                [input.boardId, input.q, input.topK]
+              )
+            ).rows;
+
+      await client.query("commit");
+
+      return fallbackRows.map((row) => {
+        const rank =
+          typeof row.rank === "number"
+            ? row.rank
+            : typeof row.rank === "string"
+              ? Number(row.rank)
+              : undefined;
+
+        return {
+          cardId: row.card_id,
+          listId: row.list_id,
+          title: row.title,
+          snippet: row.snippet ?? undefined,
+          rank: Number.isFinite(rank) ? rank : undefined,
+          updatedAt: toIso(row.updated_at)
+        };
+      });
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   private async retrieveContextsWithRls(input: {

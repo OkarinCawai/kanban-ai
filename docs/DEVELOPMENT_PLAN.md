@@ -285,7 +285,7 @@ Progress snapshot:
 - [x] Add Postgres full-text search over cards (title + description + key metadata) using `tsvector` + GIN index.
 - [x] Add a scoped search API endpoint (board/org scoped; enforced by RLS).
 - [x] Add a web search UI (query box, result list, and jump-to-card interaction).
-- [ ] Optional: semantic search using `pgvector` (embeddings generated async in the worker) with permission-aware retrieval.
+- [x] Optional: semantic search via async worker job (embeddings + cosine) with permission-aware retrieval.
 
 Deliverables:
 - Schema migration for FTS columns/indexes.

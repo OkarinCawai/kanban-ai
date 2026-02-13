@@ -465,30 +465,33 @@
 		        {
 		          id: "M11",
 		          title: "Search + Discovery",
-		          status: "planned",
+		          status: "completed",
 		          tasks: [
-		            { label: "Postgres FTS (tsvector + GIN) over cards", done: false },
-		            { label: "Scoped search API endpoint (RLS-safe)", done: false },
-		            { label: "Web search UI with jump-to-card", done: false },
-		            { label: "Optional semantic search (pgvector) via worker jobs", done: false }
+		            { label: "Postgres FTS (tsvector + GIN) over cards", done: true },
+		            { label: "Scoped search API endpoint (RLS-safe)", done: true },
+		            { label: "Web search UI with jump-to-card", done: true },
+		            { label: "Optional semantic search via worker jobs (embeddings)", done: true }
 		          ],
 		          updates: [
 		            "2026-02-12: Planned: ship keyword search first with fast indexes and denial-case coverage.",
-		            "2026-02-12: Semantic search is optional and gated behind stable embedding jobs/tests."
+		            "2026-02-12: Semantic search is optional and gated behind stable embedding jobs/tests.",
+		            "2026-02-13: Shipped board-scoped card search (FTS) with labels indexed + API + web-react UI.",
+		            "2026-02-13: Added async semantic card search (queue + status) with RLS-safe retrieval."
 		          ]
 		        },
 		        {
 		          id: "M12",
 		          title: "Generative Board Creation",
-		          status: "planned",
+		          status: "completed",
 		          tasks: [
-		            { label: "BoardBlueprint contract + strict validation", done: false },
-		            { label: "Async queue/status endpoints (outbox)", done: false },
-		            { label: "Preview + confirm transactional creation flow", done: false },
-		            { label: "Idempotency keys and retry-safe worker implementation", done: false }
+		            { label: "BoardBlueprint contract + strict validation", done: true },
+		            { label: "Async queue/status endpoints (outbox)", done: true },
+		            { label: "Preview + confirm transactional creation flow", done: true },
+		            { label: "Idempotency keys and retry-safe worker implementation", done: true }
 		          ],
 		          updates: [
-		            "2026-02-12: Planned: solve the blank-canvas problem with async, schema-validated board generation."
+		            "2026-02-12: Planned: solve the blank-canvas problem with async, schema-validated board generation.",
+		            "2026-02-13: Implemented async board blueprint generation + preview/confirm flow with idempotent creation."
 		          ]
 		        },
 		        {
@@ -538,7 +541,7 @@
       const TEST_SIGNAL = {
         passing: 70,
         failing: 0,
-        verifiedAt: "2026-02-12 (latest full npm run test + verify:live)"
+        verifiedAt: "2026-02-13 (latest full npm test + typecheck)"
       };
 
       const boardEl = document.getElementById("board");

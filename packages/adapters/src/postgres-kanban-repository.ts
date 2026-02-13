@@ -8,6 +8,7 @@ import {
   cardSearchHitSchema,
   cardSummaryResultSchema,
   dailyStandupResultSchema,
+  semanticCardSearchResultSchema,
   threadToCardResultSchema,
   weeklyRecapResultSchema,
   type AskBoardResult,
@@ -20,6 +21,7 @@ import {
   type CardSummaryResult,
   type DailyStandupResult,
   type KanbanList,
+  type SemanticCardSearchResult,
   type ThreadToCardResult,
   type WeeklyRecapResult
 } from "@kanban/contracts";
@@ -102,6 +104,17 @@ type DbAskBoardResult = {
   top_k: number;
   status: string;
   answer_json: unknown;
+  updated_at: string | Date;
+};
+
+type DbCardSemanticSearchResult = {
+  id: string;
+  board_id: string;
+  query_text: string;
+  top_k: number;
+  status: string;
+  hits_json: unknown;
+  failure_reason: string | null;
   updated_at: string | Date;
 };
 
@@ -297,6 +310,20 @@ const mapAskBoardResult = (row: DbAskBoardResult): AskBoardResult =>
     topK: row.top_k,
     status: row.status,
     answer: row.answer_json ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
+const mapCardSemanticSearchResult = (
+  row: DbCardSemanticSearchResult
+): SemanticCardSearchResult =>
+  semanticCardSearchResultSchema.parse({
+    jobId: row.id,
+    boardId: row.board_id,
+    q: row.query_text,
+    topK: row.top_k,
+    status: row.status,
+    hits: row.hits_json ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
     updatedAt: toIso(row.updated_at)
   });
 
@@ -498,6 +525,32 @@ export class PostgresKanbanRepository implements KanbanRepository {
       );
 
       return result.rows[0] ? mapAskBoardResult(result.rows[0]) : null;
+    });
+  }
+
+  async findCardSemanticSearchResultByJobId(
+    jobId: string
+  ): Promise<SemanticCardSearchResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbCardSemanticSearchResult>(
+        `
+          select
+            id,
+            board_id,
+            query_text,
+            top_k,
+            status,
+            hits_json,
+            failure_reason,
+            updated_at
+          from public.card_semantic_search_requests
+          where id = $1::uuid
+          limit 1
+        `,
+        [jobId]
+      );
+
+      return result.rows[0] ? mapCardSemanticSearchResult(result.rows[0]) : null;
     });
   }
 
@@ -954,6 +1007,63 @@ export class PostgresKanbanRepository implements KanbanRepository {
               input.status,
               input.answerJson ? JSON.stringify(input.answerJson) : null,
               input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertCardSemanticSearchRequest: async (input) => {
+          await client.query(
+            `
+              insert into public.card_semantic_search_requests (
+                id,
+                org_id,
+                board_id,
+                requester_user_id,
+                query_text,
+                top_k,
+                status,
+                hits_json,
+                source_event_id,
+                failure_reason,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                $5,
+                $6,
+                $7,
+                $8::jsonb,
+                $9::uuid,
+                $10,
+                now(),
+                $11::timestamptz
+              )
+              on conflict (id) do update
+              set
+                requester_user_id = excluded.requester_user_id,
+                query_text = excluded.query_text,
+                top_k = excluded.top_k,
+                status = excluded.status,
+                hits_json = excluded.hits_json,
+                source_event_id = excluded.source_event_id,
+                failure_reason = excluded.failure_reason,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.id,
+              input.orgId,
+              input.boardId,
+              input.requesterUserId,
+              input.queryText,
+              input.topK,
+              input.status,
+              input.hitsJson ? JSON.stringify(input.hitsJson) : null,
+              input.sourceEventId ?? null,
+              input.failureReason ?? null,
               input.updatedAt
             ]
           );

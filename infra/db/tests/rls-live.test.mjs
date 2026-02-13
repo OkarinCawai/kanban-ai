@@ -287,6 +287,75 @@ test(
       );
       assert.equal(askBoardInsert.rowCount, 1);
 
+      const semanticSearchEventId = "e20ee834-8d40-4d59-a270-74d81cf98b43";
+      const semanticSearchInsert = await runWithClaims(
+        client,
+        { sub: userViewer, org_id: orgA, role: "viewer" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.outbox_events (id, type, payload, org_id, board_id)
+              values (
+                $1::uuid,
+                'ai.card-semantic-search.requested',
+                $2::jsonb,
+                $3::uuid,
+                $4::uuid
+              )
+            `,
+            [
+              semanticSearchEventId,
+              JSON.stringify({
+                jobId: semanticSearchEventId,
+                boardId: boardA,
+                actorUserId: userViewer,
+                q: "urgent blockers",
+                topK: 10
+              }),
+              orgA,
+              boardA
+            ]
+          )
+      );
+      assert.equal(semanticSearchInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.outbox_events (id, type, payload, org_id, board_id)
+                  values (
+                    $1::uuid,
+                    'ai.card-semantic-search.requested',
+                    $2::jsonb,
+                    $3::uuid,
+                    $4::uuid
+                  )
+                `,
+                [
+                  "cfe9b0d5-7f9f-4a1f-9bd9-e7fdd9d74e0b",
+                  JSON.stringify({
+                    jobId: "cfe9b0d5-7f9f-4a1f-9bd9-e7fdd9d74e0b",
+                    boardId: boardA,
+                    actorUserId: userEditor,
+                    q: "should be blocked",
+                    topK: 5
+                  }),
+                  orgA,
+                  boardA
+                ]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
       await assert.rejects(
         () =>
           runWithClaims(

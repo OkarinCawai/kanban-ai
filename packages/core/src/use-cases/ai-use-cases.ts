@@ -15,8 +15,10 @@ import {
   queueCardCoverInputSchema,
   queueBoardBlueprintInputSchema,
   queueDailyStandupInputSchema,
+  queueSemanticCardSearchInputSchema,
   queueWeeklyRecapInputSchema,
   queueThreadToCardInputSchema,
+  semanticCardSearchResultSchema,
   threadToCardResultSchema,
   weeklyRecapResultSchema,
   type CardChecklistItem,
@@ -267,6 +269,58 @@ export class AiUseCases {
     return aiJobAcceptedSchema.parse({
       jobId,
       eventType: "ai.ask-board.requested",
+      status: "queued",
+      queuedAt: now
+    });
+  }
+
+  async queueCardSemanticSearch(
+    context: RequestContext,
+    boardId: string,
+    input: unknown
+  ) {
+    const parsed = parseOrThrow(queueSemanticCardSearchInputSchema, input ?? {});
+
+    const board = await this.deps.repository.findBoardById(boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Board was not found in your organization.");
+    }
+
+    const now = this.deps.clock.nowIso();
+    const jobId = this.deps.idGenerator.next("evt");
+    const topK = parsed.topK ?? 20;
+
+    await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertCardSemanticSearchRequest({
+        id: jobId,
+        orgId: context.orgId,
+        boardId: board.id,
+        requesterUserId: context.userId,
+        queryText: parsed.q,
+        topK,
+        status: "queued",
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: jobId,
+        type: outboxEventTypeSchema.parse("ai.card-semantic-search.requested"),
+        orgId: context.orgId,
+        boardId: board.id,
+        payload: {
+          jobId,
+          boardId: board.id,
+          actorUserId: context.userId,
+          q: parsed.q,
+          topK
+        },
+        createdAt: now
+      });
+    });
+
+    return aiJobAcceptedSchema.parse({
+      jobId,
+      eventType: "ai.card-semantic-search.requested",
       status: "queued",
       queuedAt: now
     });
@@ -531,6 +585,27 @@ export class AiUseCases {
     }
 
     return askBoardResultSchema.parse(completed);
+  }
+
+  async getCardSemanticSearchResult(
+    context: RequestContext,
+    boardId: string,
+    jobId: string
+  ) {
+    const result = await this.deps.repository.findCardSemanticSearchResultByJobId(jobId);
+    if (!result) {
+      throw new NotFoundError("Semantic search request was not found.");
+    }
+    if (result.boardId !== boardId) {
+      throw new NotFoundError("Semantic search request was not found.");
+    }
+
+    const board = await this.deps.repository.findBoardById(result.boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Semantic search request was not found.");
+    }
+
+    return semanticCardSearchResultSchema.parse(result);
   }
 
   async getBoardBlueprintResult(

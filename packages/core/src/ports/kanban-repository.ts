@@ -15,6 +15,7 @@ import type {
   Role,
   DailyStandupResult,
   WeeklyRecapResult,
+  SemanticCardSearchResult,
   ThreadToCardDraft,
   ThreadToCardResult
 } from "@kanban/contracts";
@@ -119,6 +120,20 @@ export interface UpsertAskBoardRequestParams {
   updatedAt: string;
 }
 
+export interface UpsertCardSemanticSearchRequestParams {
+  id: string;
+  orgId: string;
+  boardId: string;
+  requesterUserId: string;
+  queryText: string;
+  topK: number;
+  status: "queued" | "processing" | "completed" | "failed";
+  hitsJson?: unknown;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
 export interface UpsertBoardBlueprintRequestParams {
   id: string;
   orgId: string;
@@ -214,6 +229,7 @@ export interface KanbanMutationContext {
   moveCard(input: MoveCardParams): Promise<Card>;
   upsertCardSummary(input: UpsertCardSummaryParams): Promise<void>;
   upsertAskBoardRequest(input: UpsertAskBoardRequestParams): Promise<void>;
+  upsertCardSemanticSearchRequest(input: UpsertCardSemanticSearchRequestParams): Promise<void>;
   upsertBoardBlueprintRequest(input: UpsertBoardBlueprintRequestParams): Promise<void>;
   upsertCardCover(input: UpsertCardCoverParams): Promise<void>;
   upsertWeeklyRecap(input: UpsertWeeklyRecapParams): Promise<void>;
@@ -230,6 +246,7 @@ export interface KanbanRepository {
   findCardSummaryByCardId(cardId: string): Promise<CardSummaryResult | null>;
   findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null>;
   findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null>;
+  findCardSemanticSearchResultByJobId(jobId: string): Promise<SemanticCardSearchResult | null>;
   findBoardBlueprintResultByJobId(jobId: string): Promise<BoardBlueprintResult | null>;
   findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null>;
   findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null>;

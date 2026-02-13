@@ -33,6 +33,7 @@ const requiredTables = [
   "board_daily_standups",
   "board_stuck_reports",
   "thread_card_extractions",
+  "card_semantic_search_requests",
   "documents",
   "document_chunks",
   "document_embeddings"
@@ -85,6 +86,9 @@ test("policy: board/list/card read and write policies are present", () => {
     "thread_card_extractions_select_policy",
     "thread_card_extractions_insert_policy",
     "thread_card_extractions_update_policy",
+    "card_semantic_search_requests_select_policy",
+    "card_semantic_search_requests_insert_policy",
+    "card_semantic_search_requests_update_policy",
     "documents_select_policy",
     "documents_write_policy",
     "document_chunks_select_policy",

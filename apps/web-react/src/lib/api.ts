@@ -16,8 +16,10 @@ import {
   moveCardInputSchema,
   queueCardCoverInputSchema,
   queueCardSummaryInputSchema,
+  queueSemanticCardSearchInputSchema,
   searchCardsQuerySchema,
   searchCardsResponseSchema,
+  semanticCardSearchResultSchema,
   updateCardInputSchema
 } from "@kanban/contracts";
 
@@ -246,6 +248,22 @@ export const createApiClient = (context: ApiContext) => ({
       path: `/ai/ask-board/${encodeURIComponent(jobId)}`,
       method: "GET",
       outputSchema: askBoardResultSchema
+    }),
+  queueSemanticCardSearch: (boardId: string, input: unknown) =>
+    callApi({
+      context,
+      path: `/boards/${encodeURIComponent(boardId)}/search/semantic`,
+      method: "POST",
+      input,
+      inputSchema: queueSemanticCardSearchInputSchema,
+      outputSchema: aiJobAcceptedSchema
+    }),
+  getSemanticCardSearchResult: (boardId: string, jobId: string) =>
+    callApi({
+      context,
+      path: `/boards/${encodeURIComponent(boardId)}/search/semantic/${encodeURIComponent(jobId)}`,
+      method: "GET",
+      outputSchema: semanticCardSearchResultSchema
     })
 });
 

@@ -219,6 +219,7 @@ export const outboxEventTypeSchema = z.enum([
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
+  "ai.card-semantic-search.requested",
   "cover.generate-spec.requested",
   "cover.render.requested",
   "hygiene.detect-stuck.requested"

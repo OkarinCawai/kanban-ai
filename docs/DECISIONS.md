@@ -173,6 +173,13 @@ Newest decision with same topic supersedes older entries.
 - Decision: Allow `OutboxEvent.boardId` to be nullable in `packages/contracts` and repository ports. Org-scoped outbox events set `board_id` to null while retaining `org_id` enforcement and role-based enqueue policies.
 - Consequences: Consumers must tolerate `boardId = null` and validate expectations per event type. RLS remains the primary enforcement boundary via `org_id` and per-table policies.
 
+## D-024: Viewers may enqueue semantic card search outbox events only for themselves
+- Date: 2026-02-13
+- Status: `accepted`
+- Context: Semantic card search is a read-oriented async workflow, but it still requires an outbox insert inside the enqueue transaction; the existing viewer enqueue exception only covered `ai.ask-board.requested`.
+- Decision: Extend `outbox_events_insert_policy` to allow `viewer` inserts for `ai.card-semantic-search.requested` under the same guardrails as ask-board (request scoped to `current_org_id()`, `actorUserId = current_user_id()`, `jobId=id`, `boardId=board_id`, board belongs to org).
+- Consequences: Viewers can run semantic search without loosening outbox permissions for other event types; outbox remains a security boundary for async side effects while limiting abuse to self-scoped, board-scoped jobs.
+
 ## Template for new decisions
 
 Use this block for future entries:

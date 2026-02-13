@@ -13,6 +13,7 @@ import type {
   DailyStandupResult,
   KanbanList,
   OutboxEvent,
+  SemanticCardSearchResult,
   WeeklyRecapResult,
   ThreadToCardResult
 } from "@kanban/contracts";
@@ -32,6 +33,7 @@ class FakeRepository implements KanbanRepository {
   private cardSummaries = new Map<string, CardSummaryResult>();
   private cardCovers = new Map<string, CardCoverResult>();
   private askResults = new Map<string, AskBoardResult>();
+  private semanticSearchResults = new Map<string, SemanticCardSearchResult>();
   private boardBlueprintResults = new Map<string, BoardBlueprintResult>();
   private weeklyRecaps = new Map<string, WeeklyRecapResult>();
   private dailyStandups = new Map<string, DailyStandupResult>();
@@ -61,6 +63,10 @@ class FakeRepository implements KanbanRepository {
 
   seedAskResult(result: AskBoardResult): void {
     this.askResults.set(result.jobId, result);
+  }
+
+  seedSemanticSearchResult(result: SemanticCardSearchResult): void {
+    this.semanticSearchResults.set(result.jobId, result);
   }
 
   seedBoardBlueprintResult(result: BoardBlueprintResult): void {
@@ -107,6 +113,12 @@ class FakeRepository implements KanbanRepository {
     return this.askResults.get(jobId) ?? null;
   }
 
+  async findCardSemanticSearchResultByJobId(
+    jobId: string
+  ): Promise<SemanticCardSearchResult | null> {
+    return this.semanticSearchResults.get(jobId) ?? null;
+  }
+
   async findBoardBlueprintResultByJobId(jobId: string): Promise<BoardBlueprintResult | null> {
     return this.boardBlueprintResults.get(jobId) ?? null;
   }
@@ -150,6 +162,7 @@ class FakeRepository implements KanbanRepository {
       cardSummaries: new Map(this.cardSummaries),
       cardCovers: new Map(this.cardCovers),
       askResults: new Map(this.askResults),
+      semanticSearchResults: new Map(this.semanticSearchResults),
       boardBlueprintResults: new Map(this.boardBlueprintResults),
       weeklyRecaps: new Map(this.weeklyRecaps),
       dailyStandups: new Map(this.dailyStandups),
@@ -231,6 +244,18 @@ class FakeRepository implements KanbanRepository {
           topK: input.topK,
           status: input.status,
           answer: input.answerJson as AskBoardResult["answer"] | undefined,
+          updatedAt: input.updatedAt
+        });
+      },
+      upsertCardSemanticSearchRequest: async (input) => {
+        this.semanticSearchResults.set(input.id, {
+          jobId: input.id,
+          boardId: input.boardId,
+          q: input.queryText,
+          topK: input.topK,
+          status: input.status,
+          hits: input.hitsJson as SemanticCardSearchResult["hits"] | undefined,
+          failureReason: input.failureReason,
           updatedAt: input.updatedAt
         });
       },
@@ -330,6 +355,7 @@ class FakeRepository implements KanbanRepository {
       this.cardSummaries = snapshot.cardSummaries;
       this.cardCovers = snapshot.cardCovers;
       this.askResults = snapshot.askResults;
+      this.semanticSearchResults = snapshot.semanticSearchResults;
       this.boardBlueprintResults = snapshot.boardBlueprintResults;
       this.weeklyRecaps = snapshot.weeklyRecaps;
       this.dailyStandups = snapshot.dailyStandups;
@@ -446,6 +472,50 @@ test("core-ai: queue ask-board writes ai outbox event", async () => {
   assert.equal(repository.getOutbox().length, 1);
   assert.equal(repository.getOutbox()[0]?.type, "ai.ask-board.requested");
   assert.equal(repository.getOutbox()[0]?.payload.topK, 8);
+});
+
+test("core-ai: queue semantic card search writes ai outbox event and persists queued state", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    title: "Board",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const accepted = await useCases.queueCardSemanticSearch(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "viewer"
+    },
+    "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    { q: "urgent", topK: 6 }
+  );
+
+  assert.equal(accepted.eventType, "ai.card-semantic-search.requested");
+  assert.equal(repository.getOutbox().length, 1);
+  assert.equal(repository.getOutbox()[0]?.type, "ai.card-semantic-search.requested");
+  assert.equal(repository.getOutbox()[0]?.boardId, "bc56cb70-d38d-4621-b9e3-9b01823f6a95");
+  assert.equal(repository.getOutbox()[0]?.payload.topK, 6);
+
+  const status = await useCases.getCardSemanticSearchResult(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "viewer"
+    },
+    "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    accepted.jobId
+  );
+
+  assert.equal(status.status, "queued");
+  assert.equal(status.q, "urgent");
+  assert.equal(status.topK, 6);
 });
 
 test("core-ai: queue board blueprint writes ai outbox event and persists queued state", async () => {
