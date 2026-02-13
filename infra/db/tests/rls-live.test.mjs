@@ -46,6 +46,7 @@ test(
     const boardA = "722ad3ba-6c19-4fa1-841c-e68dd0d72f84";
     const boardB = "a15a1aba-a8b5-4e8b-8f73-674d988bce44";
     const listA = "d2d694ed-fb78-4f30-a918-2dd933644af8";
+    const cardA = "c6a94d8c-4e5b-4de2-bdfd-5ccdd50849df";
 
     await client.connect();
 
@@ -85,6 +86,14 @@ test(
           on conflict (id) do update set title = excluded.title
         `,
         [listA, orgA, boardA]
+      );
+      await client.query(
+        `
+          insert into public.cards (id, org_id, board_id, list_id, title, position)
+          values ($1::uuid, $2::uuid, $3::uuid, $4::uuid, 'Probe Card', 1024)
+          on conflict (id) do update set title = excluded.title
+        `,
+        [cardA, orgA, boardA, listA]
       );
       await client.query("commit");
 
@@ -157,6 +166,75 @@ test(
         }
       );
 
+      const askBoardEventId = "d613db4a-6a38-4b70-a3c1-fd60ae4c0135";
+      const askBoardInsert = await runWithClaims(
+        client,
+        { sub: userViewer, org_id: orgA, role: "viewer" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.outbox_events (id, type, payload, org_id, board_id)
+              values (
+                $1::uuid,
+                'ai.ask-board.requested',
+                $2::jsonb,
+                $3::uuid,
+                $4::uuid
+              )
+            `,
+            [
+              askBoardEventId,
+              JSON.stringify({
+                jobId: askBoardEventId,
+                boardId: boardA,
+                actorUserId: userViewer,
+                question: "What is on this board?",
+                topK: 3
+              }),
+              orgA,
+              boardA
+            ]
+          )
+      );
+      assert.equal(askBoardInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.outbox_events (id, type, payload, org_id, board_id)
+                  values (
+                    $1::uuid,
+                    'ai.ask-board.requested',
+                    $2::jsonb,
+                    $3::uuid,
+                    $4::uuid
+                  )
+                `,
+                [
+                  "c43f9d5b-d46f-4b99-9636-559f3f83a4b7",
+                  JSON.stringify({
+                    jobId: "c43f9d5b-d46f-4b99-9636-559f3f83a4b7",
+                    boardId: boardA,
+                    actorUserId: userEditor,
+                    question: "This should be blocked.",
+                    topK: 3
+                  }),
+                  orgA,
+                  boardA
+                ]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
       const outboxInsert = await runWithClaims(
         client,
         { sub: userEditor, org_id: orgA, role: "editor" },
@@ -170,6 +248,280 @@ test(
           )
       );
       assert.equal(outboxInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.card_covers (
+                    card_id,
+                    org_id,
+                    board_id,
+                    job_id,
+                    status
+                  )
+                  values (
+                    $1::uuid,
+                    $2::uuid,
+                    $3::uuid,
+                    $4::uuid,
+                    'queued'
+                  )
+                `,
+                [
+                  cardA,
+                  orgA,
+                  boardA,
+                  "6cc63aa5-93f5-4d2f-a40b-3b4615c0f48d"
+                ]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
+      const coverInsert = await runWithClaims(
+        client,
+        { sub: userEditor, org_id: orgA, role: "editor" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.card_covers (
+                card_id,
+                org_id,
+                board_id,
+                job_id,
+                status
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                'queued'
+              )
+              returning card_id
+            `,
+            [cardA, orgA, boardA, "a9a2ce77-a13f-4c0c-bb33-efcf71e6c4af"]
+          )
+      );
+      assert.equal(coverInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.board_weekly_recaps (
+                    board_id,
+                    org_id,
+                    job_id,
+                    status,
+                    period_start,
+                    period_end
+                  )
+                  values (
+                    $1::uuid,
+                    $2::uuid,
+                    $3::uuid,
+                    'queued',
+                    now() - interval '7 days',
+                    now()
+                  )
+                `,
+                [boardA, orgA, "2a2026a2-1e21-4f85-a85a-9dd2ad841d48"]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
+      const recapInsert = await runWithClaims(
+        client,
+        { sub: userEditor, org_id: orgA, role: "editor" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.board_weekly_recaps (
+                board_id,
+                org_id,
+                job_id,
+                status,
+                period_start,
+                period_end
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                'queued',
+                now() - interval '7 days',
+                now()
+              )
+              on conflict (board_id) do update
+              set
+                job_id = excluded.job_id,
+                status = excluded.status,
+                period_start = excluded.period_start,
+                period_end = excluded.period_end,
+                updated_at = now()
+              returning board_id
+            `,
+            [boardA, orgA, "c4b8b292-f47f-4dcc-8c65-8eafe7ae1de6"]
+          )
+      );
+      assert.equal(recapInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.board_daily_standups (
+                    board_id,
+                    org_id,
+                    job_id,
+                    status,
+                    period_start,
+                    period_end
+                  )
+                  values (
+                    $1::uuid,
+                    $2::uuid,
+                    $3::uuid,
+                    'queued',
+                    now() - interval '24 hours',
+                    now()
+                  )
+                `,
+                [boardA, orgA, "c417480c-72ea-4e03-9f5b-7ab44f85b6f7"]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
+      const standupInsert = await runWithClaims(
+        client,
+        { sub: userEditor, org_id: orgA, role: "editor" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.board_daily_standups (
+                board_id,
+                org_id,
+                job_id,
+                status,
+                period_start,
+                period_end
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                'queued',
+                now() - interval '24 hours',
+                now()
+              )
+              on conflict (board_id) do update
+              set
+                job_id = excluded.job_id,
+                status = excluded.status,
+                period_start = excluded.period_start,
+                period_end = excluded.period_end,
+                updated_at = now()
+              returning board_id
+            `,
+            [boardA, orgA, "2af580b5-28a8-492c-8dff-57ff0fed31f1"]
+          )
+      );
+      assert.equal(standupInsert.rowCount, 1);
+
+      await assert.rejects(
+        () =>
+          runWithClaims(
+            client,
+            { sub: userViewer, org_id: orgA, role: "viewer" },
+            (tx) =>
+              tx.query(
+                `
+                  insert into public.board_stuck_reports (
+                    board_id,
+                    org_id,
+                    job_id,
+                    status,
+                    threshold_days,
+                    as_of
+                  )
+                  values (
+                    $1::uuid,
+                    $2::uuid,
+                    $3::uuid,
+                    'queued',
+                    7,
+                    now()
+                  )
+                `,
+                [boardA, orgA, "9a83c4e8-9c0b-4e91-ac64-e6306b0f3c7d"]
+              )
+          ),
+        (error) => {
+          assert.equal(error?.code, "42501");
+          return true;
+        }
+      );
+
+      const stuckInsert = await runWithClaims(
+        client,
+        { sub: userEditor, org_id: orgA, role: "editor" },
+        (tx) =>
+          tx.query(
+            `
+              insert into public.board_stuck_reports (
+                board_id,
+                org_id,
+                job_id,
+                status,
+                threshold_days,
+                as_of
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                'queued',
+                7,
+                now()
+              )
+              on conflict (board_id) do update
+              set
+                job_id = excluded.job_id,
+                status = excluded.status,
+                threshold_days = excluded.threshold_days,
+                as_of = excluded.as_of,
+                updated_at = now()
+              returning board_id
+            `,
+            [boardA, orgA, "b1b259ee-d517-4d2b-896a-548ee190fa4b"]
+          )
+      );
+      assert.equal(stuckInsert.rowCount, 1);
 
       await assert.rejects(
         () =>
@@ -256,9 +608,32 @@ test(
           delete from public.outbox_events
           where id in (
             '7f46af0f-c1ea-45e8-9d40-8a4e3cfdd9ad'::uuid,
-            '26dca08a-8b42-4f91-a7f9-a9f5ed9274c0'::uuid
+            '26dca08a-8b42-4f91-a7f9-a9f5ed9274c0'::uuid,
+            'd613db4a-6a38-4b70-a3c1-fd60ae4c0135'::uuid,
+            'c43f9d5b-d46f-4b99-9636-559f3f83a4b7'::uuid
           )
         `
+      );
+      await client.query(
+        `
+          delete from public.board_weekly_recaps
+          where board_id = $1::uuid
+        `,
+        [boardA]
+      );
+      await client.query(
+        `
+          delete from public.board_daily_standups
+          where board_id = $1::uuid
+        `,
+        [boardA]
+      );
+      await client.query(
+        `
+          delete from public.board_stuck_reports
+          where board_id = $1::uuid
+        `,
+        [boardA]
       );
       await client.query(
         `
@@ -268,6 +643,13 @@ test(
             'cf1d5d76-56f2-4cc6-aae8-f3b5c73df2f8'::uuid
           )
         `
+      );
+      await client.query(
+        `
+          delete from public.card_covers
+          where card_id = $1::uuid
+        `,
+        [cardA]
       );
       await client.query(
         `

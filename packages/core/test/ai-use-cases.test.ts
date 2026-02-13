@@ -4,10 +4,14 @@ import test from "node:test";
 import type {
   AskBoardResult,
   Board,
+  BoardStuckReportResult,
   Card,
+  CardCoverResult,
   CardSummaryResult,
+  DailyStandupResult,
   KanbanList,
   OutboxEvent,
+  WeeklyRecapResult,
   ThreadToCardResult
 } from "@kanban/contracts";
 
@@ -24,7 +28,11 @@ class FakeRepository implements KanbanRepository {
   private lists = new Map<string, KanbanList>();
   private cards = new Map<string, Card>();
   private cardSummaries = new Map<string, CardSummaryResult>();
+  private cardCovers = new Map<string, CardCoverResult>();
   private askResults = new Map<string, AskBoardResult>();
+  private weeklyRecaps = new Map<string, WeeklyRecapResult>();
+  private dailyStandups = new Map<string, DailyStandupResult>();
+  private stuckReports = new Map<string, BoardStuckReportResult>();
   private threadResults = new Map<string, ThreadToCardResult>();
   private outbox: OutboxEvent[] = [];
 
@@ -56,6 +64,18 @@ class FakeRepository implements KanbanRepository {
     this.threadResults.set(result.jobId, result);
   }
 
+  seedWeeklyRecap(result: WeeklyRecapResult): void {
+    this.weeklyRecaps.set(result.boardId, result);
+  }
+
+  seedDailyStandup(result: DailyStandupResult): void {
+    this.dailyStandups.set(result.boardId, result);
+  }
+
+  seedStuckReport(result: BoardStuckReportResult): void {
+    this.stuckReports.set(result.boardId, result);
+  }
+
   async findBoardById(boardId: string): Promise<Board | null> {
     return this.boards.get(boardId) ?? null;
   }
@@ -72,8 +92,24 @@ class FakeRepository implements KanbanRepository {
     return this.cardSummaries.get(cardId) ?? null;
   }
 
+  async findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null> {
+    return this.cardCovers.get(cardId) ?? null;
+  }
+
   async findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null> {
     return this.askResults.get(jobId) ?? null;
+  }
+
+  async findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null> {
+    return this.weeklyRecaps.get(boardId) ?? null;
+  }
+
+  async findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null> {
+    return this.dailyStandups.get(boardId) ?? null;
+  }
+
+  async findBoardStuckReportByBoardId(boardId: string): Promise<BoardStuckReportResult | null> {
+    return this.stuckReports.get(boardId) ?? null;
   }
 
   async findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null> {
@@ -94,7 +130,11 @@ class FakeRepository implements KanbanRepository {
     const snapshot = {
       outbox: [...this.outbox],
       cardSummaries: new Map(this.cardSummaries),
+      cardCovers: new Map(this.cardCovers),
       askResults: new Map(this.askResults),
+      weeklyRecaps: new Map(this.weeklyRecaps),
+      dailyStandups: new Map(this.dailyStandups),
+      stuckReports: new Map(this.stuckReports),
       threadResults: new Map(this.threadResults)
     };
     const tx: KanbanMutationContext = {
@@ -132,6 +172,53 @@ class FakeRepository implements KanbanRepository {
           updatedAt: input.updatedAt
         });
       },
+      upsertCardCover: async (input) => {
+        this.cardCovers.set(input.cardId, {
+          cardId: input.cardId,
+          jobId: input.jobId,
+          status: input.status,
+          spec: input.specJson as CardCoverResult["spec"] | undefined,
+          bucket: input.bucket,
+          objectPath: input.objectPath,
+          contentType: input.contentType,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        });
+      },
+      upsertWeeklyRecap: async (input) => {
+        this.weeklyRecaps.set(input.boardId, {
+          boardId: input.boardId,
+          jobId: input.jobId,
+          status: input.status,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          recap: input.recapJson as WeeklyRecapResult["recap"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        });
+      },
+      upsertDailyStandup: async (input) => {
+        this.dailyStandups.set(input.boardId, {
+          boardId: input.boardId,
+          jobId: input.jobId,
+          status: input.status,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          standup: input.standupJson as DailyStandupResult["standup"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        });
+      },
+      upsertBoardStuckReport: async (input) => {
+        this.stuckReports.set(input.boardId, {
+          boardId: input.boardId,
+          jobId: input.jobId,
+          status: input.status,
+          report: input.reportJson as BoardStuckReportResult["report"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        });
+      },
       upsertThreadCardExtraction: async (input) => {
         this.threadResults.set(input.id, {
           jobId: input.id,
@@ -162,7 +249,11 @@ class FakeRepository implements KanbanRepository {
     } catch (error) {
       this.outbox = snapshot.outbox;
       this.cardSummaries = snapshot.cardSummaries;
+      this.cardCovers = snapshot.cardCovers;
       this.askResults = snapshot.askResults;
+      this.weeklyRecaps = snapshot.weeklyRecaps;
+      this.dailyStandups = snapshot.dailyStandups;
+      this.stuckReports = snapshot.stuckReports;
       this.threadResults = snapshot.threadResults;
       throw error;
     }
@@ -215,6 +306,37 @@ test("core-ai: queue card summary writes ai outbox event", async () => {
   assert.equal(repository.getOutbox()[0]?.type, "ai.card-summary.requested");
 });
 
+test("core-ai: queue card cover writes cover outbox event", async () => {
+  const repository = new FakeRepository();
+  repository.seedCard({
+    id: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    boardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    listId: "f917f2fb-4d63-4634-9b6f-08b9954d9b79",
+    title: "Card",
+    position: 1,
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const accepted = await useCases.queueCardCover(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    { styleHint: "bold" }
+  );
+
+  assert.equal(accepted.eventType, "cover.generate-spec.requested");
+  assert.equal(repository.getOutbox().length, 1);
+  assert.equal(repository.getOutbox()[0]?.type, "cover.generate-spec.requested");
+});
+
 test("core-ai: queue ask-board writes ai outbox event", async () => {
   const repository = new FakeRepository();
   repository.seedBoard({
@@ -244,6 +366,134 @@ test("core-ai: queue ask-board writes ai outbox event", async () => {
   assert.equal(repository.getOutbox().length, 1);
   assert.equal(repository.getOutbox()[0]?.type, "ai.ask-board.requested");
   assert.equal(repository.getOutbox()[0]?.payload.topK, 8);
+});
+
+test("core-ai: viewer cannot queue weekly recap", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    title: "Board",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  await assert.rejects(
+    () =>
+      useCases.queueWeeklyRecap(
+        {
+          userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+          orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+          role: "viewer"
+        },
+        "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+        {}
+      ),
+    ForbiddenError
+  );
+});
+
+test("core-ai: queue weekly recap writes ai outbox event and persists queued state", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    title: "Board",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const accepted = await useCases.queueWeeklyRecap(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    { lookbackDays: 7 }
+  );
+
+  assert.equal(accepted.eventType, "ai.weekly-recap.requested");
+  assert.equal(repository.getOutbox().length, 1);
+  assert.equal(repository.getOutbox()[0]?.type, "ai.weekly-recap.requested");
+
+  const recap = await repository.findWeeklyRecapByBoardId(
+    "bc56cb70-d38d-4621-b9e3-9b01823f6a95"
+  );
+  assert.ok(recap);
+  assert.equal(recap.status, "queued");
+  assert.equal(recap.periodEnd, staticNow);
+  assert.equal(recap.periodStart, "2026-02-04T00:00:00.000Z");
+});
+
+test("core-ai: viewer cannot queue daily standup", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    title: "Board",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  await assert.rejects(
+    () =>
+      useCases.queueDailyStandup(
+        {
+          userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+          orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+          role: "viewer"
+        },
+        "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+        {}
+      ),
+    ForbiddenError
+  );
+});
+
+test("core-ai: queue daily standup writes ai outbox event and persists queued state", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    title: "Board",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const accepted = await useCases.queueDailyStandup(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    { lookbackHours: 24 }
+  );
+
+  assert.equal(accepted.eventType, "ai.daily-standup.requested");
+  assert.equal(repository.getOutbox().length, 1);
+  assert.equal(repository.getOutbox()[0]?.type, "ai.daily-standup.requested");
+
+  const standup = await repository.findDailyStandupByBoardId(
+    "bc56cb70-d38d-4621-b9e3-9b01823f6a95"
+  );
+  assert.ok(standup);
+  assert.equal(standup.status, "queued");
+  assert.equal(standup.periodEnd, staticNow);
+  assert.equal(standup.periodStart, "2026-02-10T00:00:00.000Z");
 });
 
 test("core-ai: queue ask-board rejects cross-org access", async () => {
@@ -516,6 +766,40 @@ test("core-ai: viewer cannot queue thread-to-card", async () => {
           sourceThreadName: "Release blocker thread",
           transcript: "Line 1\nLine 2"
         }
+      ),
+    (error) => {
+      assert.equal(error instanceof ForbiddenError, true);
+      return true;
+    }
+  );
+});
+
+test("core-ai: viewer cannot queue card cover", async () => {
+  const repository = new FakeRepository();
+  repository.seedCard({
+    id: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    boardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    listId: "f917f2fb-4d63-4634-9b6f-08b9954d9b79",
+    title: "Card",
+    position: 1,
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  await assert.rejects(
+    () =>
+      useCases.queueCardCover(
+        {
+          userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+          orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+          role: "viewer"
+        },
+        "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+        {}
       ),
     (error) => {
       assert.equal(error instanceof ForbiddenError, true);

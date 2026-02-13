@@ -10,6 +10,8 @@ import type {
   DiscordAskBoardInput,
   DiscordAskBoardStatusInput,
   DiscordCardCreateInput,
+  DiscordCardCoverInput,
+  DiscordCardCoverStatusInput,
   DiscordCardSummarizeInput,
   DiscordCardSummaryStatusInput,
   DiscordCardEditInput,
@@ -108,6 +110,16 @@ export class DiscordController {
     return this.discordService.cardSummarize(discordUserId, body);
   }
 
+  @Post("commands/card-cover")
+  async cardCover(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordCardCoverInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.cardCover(discordUserId, body);
+  }
+
   @Post("commands/card-summary-status")
   async cardSummaryStatus(
     @Headers() headers: HeaderBag,
@@ -116,6 +128,16 @@ export class DiscordController {
     this.assertInternalToken(headers);
     const discordUserId = this.requireDiscordUserId(headers);
     return this.discordService.cardSummaryStatus(discordUserId, body);
+  }
+
+  @Post("commands/card-cover-status")
+  async cardCoverStatus(
+    @Headers() headers: HeaderBag,
+    @Body() body: DiscordCardCoverStatusInput
+  ) {
+    this.assertInternalToken(headers);
+    const discordUserId = this.requireDiscordUserId(headers);
+    return this.discordService.cardCoverStatus(discordUserId, body);
   }
 
   @Post("commands/ask-board")

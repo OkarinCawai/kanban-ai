@@ -1,15 +1,31 @@
+import crypto from "node:crypto";
+
 import {
   aiAskBoardRequestedPayloadSchema,
   aiCardSummaryRequestedPayloadSchema,
+  aiDailyStandupRequestedPayloadSchema,
   aiThreadToCardRequestedPayloadSchema,
+  aiWeeklyRecapRequestedPayloadSchema,
+  coverGenerateSpecRequestedPayloadSchema,
+  coverRenderRequestedPayloadSchema,
+  coverSpecSchema,
+  hygieneDetectStuckRequestedPayloadSchema,
   roleSchema,
   type AiAskBoardRequestedPayload,
   type AiCardSummaryRequestedPayload,
+  type AiDailyStandupRequestedPayload,
   type AiThreadToCardRequestedPayload,
+  type AiWeeklyRecapRequestedPayload,
+  type CoverGenerateSpecRequestedPayload,
+  type CoverRenderRequestedPayload,
+  type HygieneDetectStuckRequestedPayload,
   type Role
 } from "@kanban/contracts";
 import {
   GeminiJsonClient,
+  createSupabaseServiceClientFromEnv,
+  renderCoverPng,
+  uploadPngToBucket,
   type GeminiAskBoardContext,
   type GeminiSourceType
 } from "@kanban/adapters";
@@ -28,11 +44,30 @@ import {
   roughTokenCount
 } from "./ai-grounding.js";
 
-const AI_OUTBOX_TYPES = [
+const OUTBOX_TYPES = [
   "ai.card-summary.requested",
   "ai.ask-board.requested",
-  "ai.thread-to-card.requested"
+  "ai.thread-to-card.requested",
+  "ai.weekly-recap.requested",
+  "ai.daily-standup.requested",
+  "cover.generate-spec.requested",
+  "cover.render.requested",
+  "hygiene.detect-stuck.requested"
 ] as const;
+
+const OUTBOX_TYPES_REQUIRING_GEMINI: ReadonlySet<(typeof OUTBOX_TYPES)[number]> = new Set([
+  "ai.card-summary.requested",
+  "ai.ask-board.requested",
+  "ai.thread-to-card.requested",
+  "ai.weekly-recap.requested",
+  "ai.daily-standup.requested",
+  "cover.generate-spec.requested"
+]);
+
+const OUTBOX_TYPES_WITHOUT_GEMINI = [
+  "cover.render.requested",
+  "hygiene.detect-stuck.requested"
+] as const satisfies ReadonlyArray<(typeof OUTBOX_TYPES)[number]>;
 
 const parsePositiveInt = (value: string | undefined, fallback: number): number => {
   const parsed = Number(value ?? String(fallback));
@@ -42,9 +77,31 @@ const parsePositiveInt = (value: string | undefined, fallback: number): number =
   return Math.floor(parsed);
 };
 
+const toIso = (value: string | Date): string => new Date(value).toISOString();
+
+const countChecklistProgress = (value: unknown): { done: number; total: number } => {
+  if (!Array.isArray(value)) {
+    return { done: 0, total: 0 };
+  }
+
+  const total = value.length;
+  if (total === 0) {
+    return { done: 0, total: 0 };
+  }
+
+  let done = 0;
+  for (const item of value) {
+    if (item && typeof item === "object" && (item as { isDone?: unknown }).isDone === true) {
+      done += 1;
+    }
+  }
+
+  return { done, total };
+};
+
 type OutboxRow = {
   id: string;
-  type: (typeof AI_OUTBOX_TYPES)[number];
+  type: (typeof OUTBOX_TYPES)[number];
   payload: Record<string, unknown>;
   org_id: string;
   board_id: string | null;
@@ -69,6 +126,14 @@ type CardRow = {
 
 type MembershipRoleRow = {
   role: string;
+};
+
+type AskBoardRequestRow = {
+  id: string;
+  board_id: string;
+  status: string;
+  answer_json: unknown;
+  source_event_id: string | null;
 };
 
 type RetrievedChunkRow = {
@@ -101,6 +166,66 @@ type ThreadCardExtractionRow = {
   created_card_id: string | null;
 };
 
+type CardCoverRow = {
+  card_id: string;
+  board_id: string;
+  job_id: string;
+  status: string;
+  spec_json: unknown;
+  bucket: string | null;
+  object_path: string | null;
+  content_type: string | null;
+  failure_reason: string | null;
+};
+
+type BoardWeeklyRecapRow = {
+  board_id: string;
+  job_id: string;
+  status: string;
+  period_start: string | Date;
+  period_end: string | Date;
+  recap_json: unknown;
+  failure_reason: string | null;
+};
+
+type BoardDailyStandupRow = {
+  board_id: string;
+  job_id: string;
+  status: string;
+  period_start: string | Date;
+  period_end: string | Date;
+  standup_json: unknown;
+  failure_reason: string | null;
+};
+
+type WeeklyRecapCardRow = {
+  card_id: string;
+  card_title: string;
+  list_title: string;
+  updated_at: string | Date;
+  due_at: string | Date | null;
+  checklist_json: unknown;
+};
+
+type BoardStuckReportRow = {
+  board_id: string;
+  job_id: string;
+  status: string;
+  threshold_days: number;
+  as_of: string | Date;
+  report_json: unknown;
+  failure_reason: string | null;
+};
+
+type StuckCardRow = {
+  card_id: string;
+  card_title: string;
+  list_id: string;
+  list_title: string;
+  updated_at: string | Date;
+  due_at: string | Date | null;
+};
+
 type ParsedOutboxEvent =
   | {
       type: "ai.card-summary.requested";
@@ -113,20 +238,44 @@ type ParsedOutboxEvent =
   | {
       type: "ai.thread-to-card.requested";
       payload: AiThreadToCardRequestedPayload;
+    }
+  | {
+      type: "ai.weekly-recap.requested";
+      payload: AiWeeklyRecapRequestedPayload;
+    }
+  | {
+      type: "ai.daily-standup.requested";
+      payload: AiDailyStandupRequestedPayload;
+    }
+  | {
+      type: "cover.generate-spec.requested";
+      payload: CoverGenerateSpecRequestedPayload;
+    }
+  | {
+      type: "cover.render.requested";
+      payload: CoverRenderRequestedPayload;
+    }
+  | {
+      type: "hygiene.detect-stuck.requested";
+      payload: HygieneDetectStuckRequestedPayload;
     };
 
 @Injectable()
 export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
   private pool: Pool | null = null;
   private geminiClient: GeminiJsonClient | null = null;
+  private supabaseServiceClient: ReturnType<typeof createSupabaseServiceClientFromEnv> | null = null;
   private timer: NodeJS.Timeout | null = null;
   private polling = false;
+  private claimableOutboxTypes: ReadonlyArray<(typeof OUTBOX_TYPES)[number]> = OUTBOX_TYPES;
   private readonly pollIntervalMs = parsePositiveInt(
     process.env.OUTBOX_POLL_INTERVAL_MS,
     2000
   );
   private readonly batchSize = parsePositiveInt(process.env.OUTBOX_BATCH_SIZE, 25);
   private readonly embeddingModel = (process.env.GEMINI_EMBEDDING_MODEL?.trim() || "text-embedding-004");
+  private readonly coverBucket = process.env.COVER_BUCKET?.trim() || "covers";
+  private readonly coverCacheControl = process.env.COVER_CACHE_CONTROL?.trim() || "3600";
   private readonly boardDocumentSyncLimit = parsePositiveInt(
     process.env.BOARD_DOCUMENT_SYNC_LIMIT,
     50
@@ -146,20 +295,36 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
 
     const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
     if (!geminiApiKey) {
+      this.geminiClient = null;
       process.stdout.write(
         formatStructuredLog({
           level: "warn",
-          message: "worker: GEMINI_API_KEY missing; outbox poller disabled"
+          message: "worker: GEMINI_API_KEY missing; Gemini-backed jobs will not be processed",
+          context: { eventTypes: OUTBOX_TYPES_WITHOUT_GEMINI }
         }) + "\n"
       );
-      return;
+    } else {
+      this.geminiClient = new GeminiJsonClient({
+        apiKey: geminiApiKey,
+        model: process.env.GEMINI_MODEL?.trim(),
+        embeddingModel: this.embeddingModel
+      });
     }
 
-    this.geminiClient = new GeminiJsonClient({
-      apiKey: geminiApiKey,
-      model: process.env.GEMINI_MODEL?.trim(),
-      embeddingModel: this.embeddingModel
-    });
+    this.claimableOutboxTypes = this.geminiClient ? OUTBOX_TYPES : OUTBOX_TYPES_WITHOUT_GEMINI;
+
+    try {
+      this.supabaseServiceClient = createSupabaseServiceClientFromEnv();
+    } catch (error) {
+      this.supabaseServiceClient = null;
+      process.stdout.write(
+        formatStructuredLog({
+          level: "warn",
+          message: "worker: Supabase service client unavailable; cover uploads may fail",
+          context: { message: error instanceof Error ? error.message : String(error) }
+        }) + "\n"
+      );
+    }
 
     this.pool = new Pool({
       connectionString: supabaseDbUrl,
@@ -177,7 +342,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         context: {
           pollIntervalMs: this.pollIntervalMs,
           batchSize: this.batchSize,
-          eventTypes: AI_OUTBOX_TYPES,
+          eventTypes: this.claimableOutboxTypes,
           embeddingModel: this.embeddingModel,
           boardDocumentSyncLimit: this.boardDocumentSyncLimit
         }
@@ -200,7 +365,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async pollOnce(): Promise<void> {
-    if (this.polling || !this.pool || !this.geminiClient) {
+    if (this.polling || !this.pool) {
       return;
     }
 
@@ -221,7 +386,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
           for update skip locked
           limit $2
         `,
-        [AI_OUTBOX_TYPES, this.batchSize]
+        [this.claimableOutboxTypes, this.batchSize]
       );
 
       for (const row of claimed.rows) {
@@ -235,7 +400,7 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         process.stdout.write(
           formatStructuredLog({
             level: "info",
-            message: "worker: processed ai outbox batch",
+            message: "worker: processed outbox batch",
             context: { claimed: claimedCount }
           }) + "\n"
         );
@@ -256,9 +421,16 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async processRow(client: PoolClient, row: OutboxRow): Promise<void> {
+    const savepointName = this.toSavepointName(row.id);
+    let parsed: ParsedOutboxEvent | null = null;
+
+    // Keep each outbox row isolated so a single SQL error doesn't abort the entire batch tx.
+    await client.query(`savepoint ${savepointName}`);
+
     try {
-      const parsed = this.parseEvent(row);
+      parsed = this.parseEvent(row);
       await this.executeEvent(client, row, parsed);
+      await client.query(`release savepoint ${savepointName}`);
 
       await client.query(
         `
@@ -271,10 +443,19 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         [row.id]
       );
     } catch (error) {
-      const attemptCount = Number(row.attempt_count ?? 0) + 1;
-      const retrySeconds = Math.min(300, 2 ** Math.min(8, attemptCount));
       const rawMessage = error instanceof Error ? error.message : String(error);
       const lastError = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      // Clear the aborted transaction state and undo partial writes from this outbox row.
+      await client.query(`rollback to savepoint ${savepointName}`).catch(() => undefined);
+      await client.query(`release savepoint ${savepointName}`).catch(() => undefined);
+
+      if (parsed) {
+        await this.markJobFailed(client, row, parsed, lastError).catch(() => undefined);
+      }
+
+      const attemptCount = Number(row.attempt_count ?? 0) + 1;
+      const retrySeconds = Math.min(300, 2 ** Math.min(8, attemptCount));
 
       await client.query(
         `
@@ -288,6 +469,152 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
         [row.id, attemptCount, lastError, retrySeconds]
       );
     }
+  }
+
+  private toSavepointName(outboxId: string): string {
+    // Savepoint names cannot be parameterized; sanitize to an identifier-safe token.
+    const normalized = outboxId.replace(/[^a-zA-Z0-9]/g, "");
+    return `sp_${normalized}`;
+  }
+
+  private async markJobFailed(
+    client: PoolClient,
+    row: OutboxRow,
+    event: ParsedOutboxEvent,
+    failureReason: string
+  ): Promise<void> {
+    const truncated = failureReason.length > 1000 ? failureReason.slice(0, 1000) : failureReason;
+
+    if (event.type === "ai.card-summary.requested") {
+      await client.query(
+        `
+          update public.card_summaries
+          set
+            status = 'failed',
+            summary_json = null,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [event.payload.cardId, row.org_id]
+      );
+      return;
+    }
+
+    if (event.type === "ai.ask-board.requested") {
+      await client.query(
+        `
+          update public.ai_ask_requests
+          set
+            status = 'failed',
+            answer_json = null,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [event.payload.jobId, row.org_id]
+      );
+      return;
+    }
+
+    if (event.type === "ai.thread-to-card.requested") {
+      await client.query(
+        `
+          update public.thread_card_extractions
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+            and board_id = $3::uuid
+        `,
+        [event.payload.jobId, row.org_id, event.payload.boardId, truncated]
+      );
+      return;
+    }
+
+    if (event.type === "ai.weekly-recap.requested") {
+      await client.query(
+        `
+          update public.board_weekly_recaps
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [event.payload.boardId, row.org_id, event.payload.jobId, truncated]
+      );
+      return;
+    }
+
+    if (event.type === "ai.daily-standup.requested") {
+      await client.query(
+        `
+          update public.board_daily_standups
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [event.payload.boardId, row.org_id, event.payload.jobId, truncated]
+      );
+      return;
+    }
+
+    if (event.type === "cover.generate-spec.requested") {
+      await client.query(
+        `
+          update public.card_covers
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [event.payload.cardId, row.org_id, event.payload.jobId, truncated]
+      );
+      return;
+    }
+
+    if (event.type === "cover.render.requested") {
+      await client.query(
+        `
+          update public.card_covers
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [event.payload.cardId, row.org_id, event.payload.jobId, truncated]
+      );
+      return;
+    }
+
+    await client.query(
+      `
+        update public.board_stuck_reports
+        set
+          status = 'failed',
+          failure_reason = $4,
+          updated_at = now()
+        where board_id = $1::uuid
+          and org_id = $2::uuid
+          and job_id = $3::uuid
+      `,
+      [event.payload.boardId, row.org_id, event.payload.jobId, truncated]
+    );
   }
 
   private parseEvent(row: OutboxRow): ParsedOutboxEvent {
@@ -312,6 +639,41 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (row.type === "ai.weekly-recap.requested") {
+      return {
+        type: row.type,
+        payload: aiWeeklyRecapRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
+    if (row.type === "ai.daily-standup.requested") {
+      return {
+        type: row.type,
+        payload: aiDailyStandupRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
+    if (row.type === "cover.generate-spec.requested") {
+      return {
+        type: row.type,
+        payload: coverGenerateSpecRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
+    if (row.type === "cover.render.requested") {
+      return {
+        type: row.type,
+        payload: coverRenderRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
+    if (row.type === "hygiene.detect-stuck.requested") {
+      return {
+        type: row.type,
+        payload: hygieneDetectStuckRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
     throw new Error(`Unsupported outbox event type: ${row.type}`);
   }
 
@@ -325,12 +687,37 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (event.type === "ai.ask-board.requested") {
+      await this.executeAskBoard(client, row, event.payload);
+      return;
+    }
+
     if (event.type === "ai.thread-to-card.requested") {
       await this.executeThreadToCard(client, row, event.payload);
       return;
     }
 
-    await this.executeAskBoard(client, row, event.payload);
+    if (event.type === "ai.weekly-recap.requested") {
+      await this.executeWeeklyRecap(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "ai.daily-standup.requested") {
+      await this.executeDailyStandup(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "cover.generate-spec.requested") {
+      await this.executeCoverGenerateSpec(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "cover.render.requested") {
+      await this.executeCoverRender(client, row, event.payload);
+      return;
+    }
+
+    await this.executeDetectStuck(client, row, event.payload);
   }
 
   private async executeCardSummary(
@@ -414,66 +801,567 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       throw new Error(`Outbox board_id mismatch for ask-board event ${row.id}.`);
     }
 
-    const actorRole = await this.resolveActorRole(client, payload.actorUserId, row.org_id);
-    await this.syncBoardDocuments(client, row.org_id, payload.boardId);
+    const requestResult = await client.query<AskBoardRequestRow>(
+      `
+        select id, board_id, status, answer_json, source_event_id
+        from public.ai_ask_requests
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.jobId, row.org_id]
+    );
 
-    const questionEmbedding = await this.buildQuestionEmbedding(payload.question, row.id);
-
-    const contexts = await this.retrieveContextsWithRls({
-      actorUserId: payload.actorUserId,
-      actorOrgId: row.org_id,
-      actorRole,
-      boardId: payload.boardId,
-      question: payload.question,
-      topK: payload.topK,
-      questionEmbedding
-    });
-
-    if (contexts.length === 0) {
-      throw new Error(`No retrievable context found for board ${payload.boardId}.`);
+    const requestRow = requestResult.rows[0];
+    if (!requestRow) {
+      throw new Error(`Ask-board request ${payload.jobId} was not found.`);
     }
+
+    if (requestRow.board_id !== payload.boardId) {
+      throw new Error(`Ask-board request ${payload.jobId} has mismatched board metadata.`);
+    }
+
+    if (requestRow.status === "completed" && requestRow.answer_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.ai_ask_requests
+        set
+          status = 'processing',
+          answer_json = null,
+          updated_at = now()
+        where id = $1::uuid
+          and org_id = $2::uuid
+      `,
+      [payload.jobId, row.org_id]
+    );
+
+    try {
+      const actorRole = await this.resolveActorRole(client, payload.actorUserId, row.org_id);
+      // syncBoardDocuments writes happen on a different connection/transaction so the subsequent
+      // RLS-scoped retrieval connection can see the committed chunks immediately.
+      await this.syncBoardDocumentsCommitted(row.org_id, payload.boardId);
+
+      const questionEmbedding = await this.buildQuestionEmbedding(payload.question, row.id);
+
+      const contexts = await this.retrieveContextsWithRls({
+        actorUserId: payload.actorUserId,
+        actorOrgId: row.org_id,
+        actorRole,
+        boardId: payload.boardId,
+        question: payload.question,
+        topK: payload.topK,
+        questionEmbedding
+      });
+
+      if (contexts.length === 0) {
+        throw new Error(`No retrievable context found for board ${payload.boardId}.`);
+      }
+
+      if (!this.geminiClient) {
+        throw new Error("Gemini client is not initialized.");
+      }
+
+      const modelAnswer = await this.geminiClient.generateAskBoardAnswer({
+        question: payload.question,
+        contexts
+      });
+
+      const groundedAnswer = buildGroundedAnswer(modelAnswer, contexts);
+
+      await client.query(
+        `
+          update public.ai_ask_requests
+          set
+            status = 'completed',
+            answer_json = $3::jsonb,
+            source_event_id = $4::uuid,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.jobId, row.org_id, JSON.stringify(groundedAnswer), row.id]
+      );
+    } catch (error) {
+      await client.query(
+        `
+          update public.ai_ask_requests
+          set
+            status = 'failed',
+            answer_json = null,
+            updated_at = now()
+          where id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.jobId, row.org_id]
+      );
+
+      throw error;
+    }
+  }
+
+  private async executeWeeklyRecap(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiWeeklyRecapRequestedPayload
+  ): Promise<void> {
+    if (row.board_id && row.board_id !== payload.boardId) {
+      throw new Error(`Outbox board_id mismatch for weekly recap event ${row.id}.`);
+    }
+
+    const recapResult = await client.query<BoardWeeklyRecapRow>(
+      `
+        select
+          board_id,
+          job_id,
+          status,
+          period_start,
+          period_end,
+          recap_json,
+          failure_reason
+        from public.board_weekly_recaps
+        where board_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.boardId, row.org_id]
+    );
+
+    const recapRow = recapResult.rows[0];
+    if (!recapRow) {
+      throw new Error(`Weekly recap row was not found for board ${payload.boardId}.`);
+    }
+
+    if (recapRow.job_id !== payload.jobId) {
+      // Stale job; newer recap request superseded it.
+      return;
+    }
+
+    if (recapRow.status === "completed" && recapRow.recap_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.board_weekly_recaps
+        set
+          status = 'processing',
+          failure_reason = null,
+          updated_at = now()
+        where board_id = $1::uuid
+          and org_id = $2::uuid
+      `,
+      [payload.boardId, row.org_id]
+    );
 
     if (!this.geminiClient) {
       throw new Error("Gemini client is not initialized.");
     }
 
-    const modelAnswer = await this.geminiClient.generateAskBoardAnswer({
-      question: payload.question,
-      contexts
-    });
+    try {
+      const boardResult = await client.query<{ title: string }>(
+        `
+          select title
+          from public.boards
+          where id = $1::uuid
+            and org_id = $2::uuid
+          limit 1
+        `,
+        [payload.boardId, row.org_id]
+      );
 
-    const groundedAnswer = buildGroundedAnswer(modelAnswer, contexts);
+      const boardTitle = boardResult.rows[0]?.title;
+      if (!boardTitle) {
+        throw new Error(`Board ${payload.boardId} was not found for weekly recap generation.`);
+      }
+
+      const cardsResult = await client.query<WeeklyRecapCardRow>(
+        `
+          select
+            c.id as card_id,
+            c.title as card_title,
+            l.title as list_title,
+            c.updated_at,
+            c.due_at,
+            c.checklist_json
+          from public.cards c
+          inner join public.lists l
+            on l.id = c.list_id
+          where c.board_id = $1::uuid
+            and c.org_id = $2::uuid
+            and c.updated_at >= $3::timestamptz
+            and c.updated_at <= $4::timestamptz
+          order by c.updated_at desc
+          limit 200
+        `,
+        [payload.boardId, row.org_id, payload.periodStart, payload.periodEnd]
+      );
+
+      const cards = cardsResult.rows.map((card) => {
+        const progress = countChecklistProgress(card.checklist_json);
+        return {
+          title: card.card_title,
+          listTitle: card.list_title,
+          updatedAt: toIso(card.updated_at),
+          dueAt: card.due_at ? toIso(card.due_at) : undefined,
+          checklistDone: progress.done,
+          checklistTotal: progress.total
+        };
+      });
+
+      const digest = await this.geminiClient.generateWeeklyRecap({
+        boardTitle,
+        periodStart: payload.periodStart,
+        periodEnd: payload.periodEnd,
+        cards,
+        styleHint: payload.styleHint
+      });
+
+      await client.query(
+        `
+          update public.board_weekly_recaps
+          set
+            status = 'completed',
+            recap_json = $3::jsonb,
+            source_event_id = $4::uuid,
+            failure_reason = null,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.boardId, row.org_id, JSON.stringify(digest), row.id]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.board_weekly_recaps
+          set
+            status = 'failed',
+            failure_reason = $3,
+            source_event_id = $4::uuid,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.boardId, row.org_id, failureReason, row.id]
+      );
+
+      throw error;
+    }
+  }
+
+  private async executeDailyStandup(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiDailyStandupRequestedPayload
+  ): Promise<void> {
+    if (row.board_id && row.board_id !== payload.boardId) {
+      throw new Error(`Outbox board_id mismatch for daily standup event ${row.id}.`);
+    }
+
+    const standupResult = await client.query<BoardDailyStandupRow>(
+      `
+        select
+          board_id,
+          job_id,
+          status,
+          period_start,
+          period_end,
+          standup_json,
+          failure_reason
+        from public.board_daily_standups
+        where board_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.boardId, row.org_id]
+    );
+
+    const standupRow = standupResult.rows[0];
+    if (!standupRow) {
+      throw new Error(`Daily standup row was not found for board ${payload.boardId}.`);
+    }
+
+    if (standupRow.job_id !== payload.jobId) {
+      // Stale job; newer standup request superseded it.
+      return;
+    }
+
+    if (standupRow.status === "completed" && standupRow.standup_json) {
+      return;
+    }
 
     await client.query(
       `
-        insert into public.ai_ask_requests (
-          id, org_id, board_id, requester_user_id, question, top_k, status,
-          answer_json, source_event_id, created_at, updated_at
-        )
-        values (
-          $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, 'completed',
-          $7::jsonb, $8::uuid, now(), now()
-        )
-        on conflict (id) do update
+        update public.board_daily_standups
         set
-          question = excluded.question,
-          top_k = excluded.top_k,
-          status = 'completed',
-          answer_json = excluded.answer_json,
-          source_event_id = excluded.source_event_id,
+          status = 'processing',
+          failure_reason = null,
           updated_at = now()
+        where board_id = $1::uuid
+          and org_id = $2::uuid
       `,
-      [
-        payload.jobId,
-        row.org_id,
-        payload.boardId,
-        payload.actorUserId,
-        payload.question,
-        payload.topK,
-        JSON.stringify(groundedAnswer),
-        row.id
-      ]
+      [payload.boardId, row.org_id]
     );
+
+    if (!this.geminiClient) {
+      throw new Error("Gemini client is not initialized.");
+    }
+
+    try {
+      const boardResult = await client.query<{ title: string }>(
+        `
+          select title
+          from public.boards
+          where id = $1::uuid
+            and org_id = $2::uuid
+          limit 1
+        `,
+        [payload.boardId, row.org_id]
+      );
+
+      const boardTitle = boardResult.rows[0]?.title;
+      if (!boardTitle) {
+        throw new Error(`Board ${payload.boardId} was not found for standup generation.`);
+      }
+
+      const cardsResult = await client.query<WeeklyRecapCardRow>(
+        `
+          select
+            c.id as card_id,
+            c.title as card_title,
+            l.title as list_title,
+            c.updated_at,
+            c.due_at,
+            c.checklist_json
+          from public.cards c
+          inner join public.lists l
+            on l.id = c.list_id
+          where c.board_id = $1::uuid
+            and c.org_id = $2::uuid
+            and c.updated_at >= $3::timestamptz
+            and c.updated_at <= $4::timestamptz
+          order by c.updated_at desc
+          limit 200
+        `,
+        [payload.boardId, row.org_id, payload.periodStart, payload.periodEnd]
+      );
+
+      const cards = cardsResult.rows.map((card) => {
+        const progress = countChecklistProgress(card.checklist_json);
+        return {
+          title: card.card_title,
+          listTitle: card.list_title,
+          updatedAt: toIso(card.updated_at),
+          dueAt: card.due_at ? toIso(card.due_at) : undefined,
+          checklistDone: progress.done,
+          checklistTotal: progress.total
+        };
+      });
+
+      const standup = await this.geminiClient.generateDailyStandup({
+        boardTitle,
+        periodStart: payload.periodStart,
+        periodEnd: payload.periodEnd,
+        cards,
+        styleHint: payload.styleHint
+      });
+
+      await client.query(
+        `
+          update public.board_daily_standups
+          set
+            status = 'completed',
+            standup_json = $3::jsonb,
+            source_event_id = $4::uuid,
+            failure_reason = null,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.boardId, row.org_id, JSON.stringify(standup), row.id]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.board_daily_standups
+          set
+            status = 'failed',
+            failure_reason = $3,
+            source_event_id = $4::uuid,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.boardId, row.org_id, failureReason, row.id]
+      );
+
+      throw error;
+    }
+  }
+
+  private async executeDetectStuck(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: HygieneDetectStuckRequestedPayload
+  ): Promise<void> {
+    if (row.board_id && row.board_id !== payload.boardId) {
+      throw new Error(`Outbox board_id mismatch for detect-stuck event ${row.id}.`);
+    }
+
+    const reportResult = await client.query<BoardStuckReportRow>(
+      `
+        select
+          board_id,
+          job_id,
+          status,
+          threshold_days,
+          as_of,
+          report_json,
+          failure_reason
+        from public.board_stuck_reports
+        where board_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.boardId, row.org_id]
+    );
+
+    const reportRow = reportResult.rows[0];
+    if (!reportRow) {
+      throw new Error(`Stuck report row was not found for board ${payload.boardId}.`);
+    }
+
+    if (reportRow.job_id !== payload.jobId) {
+      // Stale job; newer detect-stuck request superseded it.
+      return;
+    }
+
+    if (reportRow.status === "completed" && reportRow.report_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.board_stuck_reports
+        set
+          status = 'processing',
+          failure_reason = null,
+          updated_at = now()
+        where board_id = $1::uuid
+          and org_id = $2::uuid
+      `,
+      [payload.boardId, row.org_id]
+    );
+
+    try {
+      const asOfDate = new Date(payload.asOf);
+      if (!Number.isFinite(asOfDate.valueOf())) {
+        throw new Error(`Invalid asOf timestamp for stuck detection: ${payload.asOf}`);
+      }
+
+      const thresholdDays = payload.thresholdDays;
+
+      const cardsResult = await client.query<StuckCardRow>(
+        `
+          select
+            c.id as card_id,
+            c.title as card_title,
+            c.list_id,
+            l.title as list_title,
+            c.updated_at,
+            c.due_at
+          from public.cards c
+          inner join public.lists l
+            on l.id = c.list_id
+          where c.board_id = $1::uuid
+            and c.org_id = $2::uuid
+            and c.updated_at <= ($3::timestamptz - ($4::int * interval '1 day'))
+          order by c.updated_at asc
+          limit 200
+        `,
+        [payload.boardId, row.org_id, payload.asOf, thresholdDays]
+      );
+
+      const dayMs = 24 * 60 * 60 * 1000;
+      const cards = cardsResult.rows.map((card) => {
+        const updatedAtIso = toIso(card.updated_at);
+        const updatedAtDate = new Date(updatedAtIso);
+        const inactiveDays = Math.max(
+          0,
+          Math.floor((asOfDate.getTime() - updatedAtDate.getTime()) / dayMs)
+        );
+
+        const dueAtIso = card.due_at ? toIso(card.due_at) : null;
+        const overdueDays =
+          dueAtIso && new Date(dueAtIso).getTime() < asOfDate.getTime()
+            ? Math.max(0, Math.floor((asOfDate.getTime() - new Date(dueAtIso).getTime()) / dayMs))
+            : null;
+
+        return {
+          cardId: card.card_id,
+          listId: card.list_id,
+          title: card.card_title,
+          updatedAt: updatedAtIso,
+          dueAt: dueAtIso ?? undefined,
+          inactiveDays,
+          overdueDays: overdueDays ?? undefined
+        };
+      });
+
+      const report = {
+        asOf: payload.asOf,
+        thresholdDays,
+        stuckCount: cards.length,
+        cards
+      };
+
+      await client.query(
+        `
+          update public.board_stuck_reports
+          set
+            status = 'completed',
+            report_json = $3::jsonb,
+            source_event_id = $4::uuid,
+            failure_reason = null,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.boardId, row.org_id, JSON.stringify(report), row.id]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.board_stuck_reports
+          set
+            status = 'failed',
+            failure_reason = $3,
+            source_event_id = $4::uuid,
+            updated_at = now()
+          where board_id = $1::uuid
+            and org_id = $2::uuid
+        `,
+        [payload.boardId, row.org_id, failureReason, row.id]
+      );
+
+      throw error;
+    }
   }
 
   private async executeThreadToCard(
@@ -625,6 +1513,314 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
     );
 
     return Array.from(new Set(result.rows.map((row) => row.user_id)));
+  }
+
+  private async executeCoverGenerateSpec(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: CoverGenerateSpecRequestedPayload
+  ): Promise<void> {
+    const coverResult = await client.query<CardCoverRow>(
+      `
+        select
+          card_id,
+          board_id,
+          job_id,
+          status,
+          spec_json,
+          bucket,
+          object_path,
+          content_type,
+          failure_reason
+        from public.card_covers
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const cover = coverResult.rows[0];
+    if (!cover) {
+      throw new Error(`Card cover row was not found for card ${payload.cardId}.`);
+    }
+
+    if (row.board_id && row.board_id !== cover.board_id) {
+      throw new Error(`Outbox board_id mismatch for cover spec event ${row.id}.`);
+    }
+
+    if (cover.job_id !== payload.jobId) {
+      // Stale job; newer cover request superseded it.
+      return;
+    }
+
+    if (cover.status === "completed" && cover.object_path) {
+      return;
+    }
+
+    await client.query(
+      `
+        update public.card_covers
+        set
+          status = 'processing',
+          failure_reason = null,
+          updated_at = now()
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+          and job_id = $3::uuid
+      `,
+      [payload.cardId, row.org_id, payload.jobId]
+    );
+
+    const cardResult = await client.query<CardRow>(
+      `
+        select
+          id,
+          board_id,
+          title,
+          description,
+          start_at,
+          due_at,
+          location_text,
+          location_url,
+          assignee_user_ids,
+          labels_json,
+          checklist_json,
+          comment_count,
+          attachment_count
+        from public.cards
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const card = cardResult.rows[0];
+    if (!card) {
+      throw new Error(`Card ${payload.cardId} not found for cover generation.`);
+    }
+
+    if (!this.geminiClient) {
+      throw new Error("Gemini client is not initialized.");
+    }
+
+    const labelNames = Array.isArray(card.labels_json)
+      ? card.labels_json
+          .map((entry: any) => (typeof entry?.name === "string" ? entry.name.trim() : ""))
+          .filter(Boolean)
+      : [];
+
+    const checklistEntries = Array.isArray(card.checklist_json) ? card.checklist_json : [];
+    const checklistTotal = checklistEntries.length;
+    const checklistDone = checklistEntries.filter(
+      (entry: any) => entry && typeof entry === "object" && entry.isDone === true
+    ).length;
+
+    try {
+      const spec = await this.geminiClient.generateCoverSpec({
+        cardTitle: card.title,
+        cardDescription: card.description ?? undefined,
+        labelNames,
+        checklistDone,
+        checklistTotal,
+        dueAt: card.due_at ? new Date(card.due_at).toISOString() : undefined,
+        styleHint: payload.styleHint
+      });
+
+      await client.query(
+        `
+          update public.card_covers
+          set
+            spec_json = $4::jsonb,
+            failure_reason = null,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [payload.cardId, row.org_id, payload.jobId, JSON.stringify(spec)]
+      );
+
+      const renderEventId = crypto.randomUUID();
+      await client.query(
+        `
+          insert into public.outbox_events (
+            id,
+            type,
+            payload,
+            org_id,
+            board_id,
+            attempt_count
+          )
+          values (
+            $1::uuid,
+            'cover.render.requested',
+            $2::jsonb,
+            $3::uuid,
+            $4::uuid,
+            0
+          )
+        `,
+        [
+          renderEventId,
+          JSON.stringify({
+            jobId: payload.jobId,
+            cardId: payload.cardId,
+            actorUserId: payload.actorUserId
+          }),
+          row.org_id,
+          cover.board_id
+        ]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.card_covers
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [payload.cardId, row.org_id, payload.jobId, failureReason]
+      );
+
+      throw error;
+    }
+  }
+
+  private async executeCoverRender(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: CoverRenderRequestedPayload
+  ): Promise<void> {
+    const coverResult = await client.query<CardCoverRow>(
+      `
+        select
+          card_id,
+          board_id,
+          job_id,
+          status,
+          spec_json,
+          bucket,
+          object_path,
+          content_type,
+          failure_reason
+        from public.card_covers
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const cover = coverResult.rows[0];
+    if (!cover) {
+      throw new Error(`Card cover row was not found for card ${payload.cardId}.`);
+    }
+
+    if (row.board_id && row.board_id !== cover.board_id) {
+      throw new Error(`Outbox board_id mismatch for cover render event ${row.id}.`);
+    }
+
+    if (cover.job_id !== payload.jobId) {
+      // Stale job; newer cover request superseded it.
+      return;
+    }
+
+    if (cover.status === "completed" && cover.object_path) {
+      return;
+    }
+
+    if (!cover.spec_json) {
+      throw new Error(`Card cover ${payload.cardId} has no spec_json to render.`);
+    }
+
+    await client.query(
+      `
+        update public.card_covers
+        set
+          status = 'processing',
+          failure_reason = null,
+          updated_at = now()
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+          and job_id = $3::uuid
+      `,
+      [payload.cardId, row.org_id, payload.jobId]
+    );
+
+    if (!this.supabaseServiceClient) {
+      throw new Error(
+        "Supabase service client is not configured; set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+      );
+    }
+
+    try {
+      const spec = coverSpecSchema.parse(cover.spec_json);
+      const { png } = await renderCoverPng(spec);
+      const objectPath = `${payload.cardId}/${payload.jobId}.png`;
+
+      const uploaded = await uploadPngToBucket({
+        client: this.supabaseServiceClient,
+        bucket: this.coverBucket,
+        path: objectPath,
+        png,
+        cacheControl: this.coverCacheControl,
+        upsert: true
+      });
+
+      await client.query(
+        `
+          update public.card_covers
+          set
+            status = 'completed',
+            bucket = $4,
+            object_path = $5,
+            content_type = $6,
+            failure_reason = null,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [
+          payload.cardId,
+          row.org_id,
+          payload.jobId,
+          uploaded.bucket,
+          uploaded.path,
+          uploaded.contentType
+        ]
+      );
+    } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const failureReason = rawMessage.length > 1000 ? rawMessage.slice(0, 1000) : rawMessage;
+
+      await client.query(
+        `
+          update public.card_covers
+          set
+            status = 'failed',
+            failure_reason = $4,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [payload.cardId, row.org_id, payload.jobId, failureReason]
+      );
+
+      throw error;
+    }
   }
 
   private async resolveActorRole(
@@ -786,6 +1982,24 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private async syncBoardDocumentsCommitted(orgId: string, boardId: string): Promise<void> {
+    if (!this.pool) {
+      throw new Error("Postgres pool is not initialized.");
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query("begin");
+      await this.syncBoardDocuments(client, orgId, boardId);
+      await client.query("commit");
+    } catch (error) {
+      await client.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   private async upsertDocumentChunk(
     client: PoolClient,
     input: {
@@ -908,10 +2122,27 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       throw new Error("Gemini client is not initialized.");
     }
 
-    const embedding = await this.geminiClient.embedText({
-      text: input.content,
-      taskType: "RETRIEVAL_DOCUMENT"
-    });
+    let embedding: number[];
+    try {
+      embedding = await this.geminiClient.embedText({
+        text: input.content,
+        taskType: "RETRIEVAL_DOCUMENT"
+      });
+    } catch (error) {
+      process.stdout.write(
+        formatStructuredLog({
+          level: "warn",
+          message: "worker: document embedding generation failed; proceeding without embeddings",
+          context: {
+            chunkId: input.chunkId,
+            orgId: input.orgId,
+            boardId: input.boardId,
+            message: error instanceof Error ? error.message : String(error)
+          }
+        }) + "\n"
+      );
+      return;
+    }
 
     const embeddingId = deterministicUuid(`embedding:${input.chunkId}:${this.embeddingModel}`);
     await client.query(

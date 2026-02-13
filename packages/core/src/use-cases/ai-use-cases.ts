@@ -2,12 +2,19 @@ import {
   askBoardResultSchema,
   aiJobAcceptedSchema,
   cardSummaryResultSchema,
+  cardCoverResultSchema,
+  coverJobAcceptedSchema,
   askBoardInputSchema,
   confirmThreadToCardInputSchema,
+  dailyStandupResultSchema,
   outboxEventTypeSchema,
   queueCardSummaryInputSchema,
+  queueCardCoverInputSchema,
+  queueDailyStandupInputSchema,
+  queueWeeklyRecapInputSchema,
   queueThreadToCardInputSchema,
   threadToCardResultSchema,
+  weeklyRecapResultSchema,
   type CardChecklistItem,
   type CardLabel
 } from "@kanban/contracts";
@@ -160,6 +167,56 @@ export class AiUseCases {
     });
   }
 
+  async queueCardCover(
+    context: RequestContext,
+    cardId: string,
+    input: unknown
+  ) {
+    ensureCanWrite(context);
+    const parsed = parseOrThrow(queueCardCoverInputSchema, input ?? {});
+
+    const card = await this.deps.repository.findCardById(cardId);
+    if (!card || card.orgId !== context.orgId) {
+      throw new NotFoundError("Card was not found in your organization.");
+    }
+
+    const now = this.deps.clock.nowIso();
+    const jobId = this.deps.idGenerator.next("evt");
+
+    await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertCardCover({
+        cardId: card.id,
+        orgId: context.orgId,
+        boardId: card.boardId,
+        jobId,
+        status: "queued",
+        sourceEventId: jobId,
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: jobId,
+        type: outboxEventTypeSchema.parse("cover.generate-spec.requested"),
+        orgId: context.orgId,
+        boardId: card.boardId,
+        payload: {
+          jobId,
+          cardId: card.id,
+          actorUserId: context.userId,
+          styleHint: parsed.styleHint
+        },
+        createdAt: now
+      });
+    });
+
+    return coverJobAcceptedSchema.parse({
+      jobId,
+      eventType: "cover.generate-spec.requested",
+      status: "queued",
+      queuedAt: now
+    });
+  }
+
   async queueAskBoard(
     context: RequestContext,
     input: unknown
@@ -206,6 +263,122 @@ export class AiUseCases {
     return aiJobAcceptedSchema.parse({
       jobId,
       eventType: "ai.ask-board.requested",
+      status: "queued",
+      queuedAt: now
+    });
+  }
+
+  async queueWeeklyRecap(
+    context: RequestContext,
+    boardId: string,
+    input: unknown
+  ) {
+    ensureCanWrite(context);
+    const parsed = parseOrThrow(queueWeeklyRecapInputSchema, input ?? {});
+
+    const board = await this.deps.repository.findBoardById(boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Board was not found in your organization.");
+    }
+
+    const now = this.deps.clock.nowIso();
+    const jobId = this.deps.idGenerator.next("evt");
+    const lookbackDays = parsed.lookbackDays ?? 7;
+    const periodEnd = now;
+    const periodStartDate = new Date(Date.parse(now) - lookbackDays * 24 * 60 * 60 * 1000);
+    const periodStart = Number.isFinite(periodStartDate.valueOf())
+      ? periodStartDate.toISOString()
+      : now;
+
+    await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertWeeklyRecap({
+        boardId: board.id,
+        orgId: context.orgId,
+        jobId,
+        status: "queued",
+        periodStart,
+        periodEnd,
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: jobId,
+        type: outboxEventTypeSchema.parse("ai.weekly-recap.requested"),
+        orgId: context.orgId,
+        boardId: board.id,
+        payload: {
+          jobId,
+          boardId: board.id,
+          actorUserId: context.userId,
+          periodStart,
+          periodEnd,
+          styleHint: parsed.styleHint
+        },
+        createdAt: now
+      });
+    });
+
+    return aiJobAcceptedSchema.parse({
+      jobId,
+      eventType: "ai.weekly-recap.requested",
+      status: "queued",
+      queuedAt: now
+    });
+  }
+
+  async queueDailyStandup(
+    context: RequestContext,
+    boardId: string,
+    input: unknown
+  ) {
+    ensureCanWrite(context);
+    const parsed = parseOrThrow(queueDailyStandupInputSchema, input ?? {});
+
+    const board = await this.deps.repository.findBoardById(boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Board was not found in your organization.");
+    }
+
+    const now = this.deps.clock.nowIso();
+    const jobId = this.deps.idGenerator.next("evt");
+    const lookbackHours = parsed.lookbackHours ?? 24;
+    const periodEnd = now;
+    const periodStartDate = new Date(Date.parse(now) - lookbackHours * 60 * 60 * 1000);
+    const periodStart = Number.isFinite(periodStartDate.valueOf())
+      ? periodStartDate.toISOString()
+      : now;
+
+    await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertDailyStandup({
+        boardId: board.id,
+        orgId: context.orgId,
+        jobId,
+        status: "queued",
+        periodStart,
+        periodEnd,
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: jobId,
+        type: outboxEventTypeSchema.parse("ai.daily-standup.requested"),
+        orgId: context.orgId,
+        boardId: board.id,
+        payload: {
+          jobId,
+          boardId: board.id,
+          actorUserId: context.userId,
+          periodStart,
+          periodEnd,
+          styleHint: parsed.styleHint
+        },
+        createdAt: now
+      });
+    });
+
+    return aiJobAcceptedSchema.parse({
+      jobId,
+      eventType: "ai.daily-standup.requested",
       status: "queued",
       queuedAt: now
     });
@@ -312,6 +485,57 @@ export class AiUseCases {
     }
 
     return askBoardResultSchema.parse(completed);
+  }
+
+  async getWeeklyRecap(
+    context: RequestContext,
+    boardId: string
+  ) {
+    const board = await this.deps.repository.findBoardById(boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Board was not found in your organization.");
+    }
+
+    const recap = await this.deps.repository.findWeeklyRecapByBoardId(board.id);
+    if (!recap) {
+      throw new NotFoundError("Weekly recap was not found.");
+    }
+
+    return weeklyRecapResultSchema.parse(recap);
+  }
+
+  async getDailyStandup(
+    context: RequestContext,
+    boardId: string
+  ) {
+    const board = await this.deps.repository.findBoardById(boardId);
+    if (!board || board.orgId !== context.orgId) {
+      throw new NotFoundError("Board was not found in your organization.");
+    }
+
+    const standup = await this.deps.repository.findDailyStandupByBoardId(board.id);
+    if (!standup) {
+      throw new NotFoundError("Daily standup was not found.");
+    }
+
+    return dailyStandupResultSchema.parse(standup);
+  }
+
+  async getCardCover(
+    context: RequestContext,
+    cardId: string
+  ) {
+    const card = await this.deps.repository.findCardById(cardId);
+    if (!card || card.orgId !== context.orgId) {
+      throw new NotFoundError("Card was not found in your organization.");
+    }
+
+    const cover = await this.deps.repository.findCardCoverByCardId(card.id);
+    if (!cover) {
+      throw new NotFoundError("Card cover request was not found.");
+    }
+
+    return cardCoverResultSchema.parse(cover);
   }
 
   async getThreadToCardResult(

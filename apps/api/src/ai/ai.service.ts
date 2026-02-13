@@ -16,12 +16,18 @@ import {
   NotFoundException
 } from "@nestjs/common";
 
-import { RequestContextStorage } from "@kanban/adapters";
+import {
+  RequestContextStorage,
+  createSignedBucketUrl,
+  createSupabaseServiceClientFromEnv
+} from "@kanban/adapters";
 import { KANBAN_REPOSITORY } from "../kanban/kanban-repository.token.js";
 
 @Injectable()
 export class AiService {
   private readonly useCases: AiUseCases;
+  private coverSignerInitialized = false;
+  private coverSignerClient: ReturnType<typeof createSupabaseServiceClientFromEnv> | null = null;
 
   constructor(
     @Inject(KANBAN_REPOSITORY)
@@ -49,12 +55,42 @@ export class AiService {
     );
   }
 
+  async queueCardCover(
+    context: RequestContext,
+    cardId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueCardCover(context, cardId, payload))
+    );
+  }
+
   async queueAskBoard(
     context: RequestContext,
     payload: unknown
   ) {
     return this.runAsContext(context, () =>
       this.execute(() => this.useCases.queueAskBoard(context, payload))
+    );
+  }
+
+  async queueWeeklyRecap(
+    context: RequestContext,
+    boardId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueWeeklyRecap(context, boardId, payload))
+    );
+  }
+
+  async queueDailyStandup(
+    context: RequestContext,
+    boardId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueDailyStandup(context, boardId, payload))
     );
   }
 
@@ -67,12 +103,40 @@ export class AiService {
     );
   }
 
+  async getCardCover(
+    context: RequestContext,
+    cardId: string
+  ) {
+    return this.runAsContext(context, async () => {
+      const cover = await this.execute(() => this.useCases.getCardCover(context, cardId));
+      return this.attachSignedCoverUrl(cover);
+    });
+  }
+
   async getAskBoardResult(
     context: RequestContext,
     jobId: string
   ) {
     return this.runAsContext(context, () =>
       this.execute(() => this.useCases.getAskBoardResult(context, jobId))
+    );
+  }
+
+  async getWeeklyRecap(
+    context: RequestContext,
+    boardId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getWeeklyRecap(context, boardId))
+    );
+  }
+
+  async getDailyStandup(
+    context: RequestContext,
+    boardId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getDailyStandup(context, boardId))
     );
   }
 
@@ -146,5 +210,58 @@ export class AiService {
     operation: () => Promise<T>
   ): Promise<T> {
     return this.requestContextStorage.run(context, operation);
+  }
+
+  private getSignedCoverUrlTtlSeconds(): number {
+    const raw = process.env.COVER_SIGNED_URL_TTL_SECONDS?.trim();
+    const parsed = raw ? Number(raw) : Number.NaN;
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.min(24 * 60 * 60, Math.max(60, Math.floor(parsed)));
+    }
+    return 60 * 60;
+  }
+
+  private getCoverSignerClient(): ReturnType<typeof createSupabaseServiceClientFromEnv> | null {
+    if (this.coverSignerInitialized) {
+      return this.coverSignerClient;
+    }
+
+    this.coverSignerInitialized = true;
+    try {
+      this.coverSignerClient = createSupabaseServiceClientFromEnv();
+    } catch {
+      this.coverSignerClient = null;
+    }
+
+    return this.coverSignerClient;
+  }
+
+  private async attachSignedCoverUrl<T extends { bucket?: string; objectPath?: string }>(
+    cover: T
+  ): Promise<T & { imageUrl?: string }> {
+    if (!cover.bucket || !cover.objectPath) {
+      return cover;
+    }
+
+    const client = this.getCoverSignerClient();
+    if (!client) {
+      return cover;
+    }
+
+    try {
+      const imageUrl = await createSignedBucketUrl({
+        client,
+        bucket: cover.bucket,
+        path: cover.objectPath,
+        expiresIn: this.getSignedCoverUrlTtlSeconds()
+      });
+
+      return {
+        ...cover,
+        imageUrl
+      };
+    } catch {
+      return cover;
+    }
   }
 }

@@ -39,10 +39,7 @@ test("worker: buildGroundedAnswer filters unknown references and falls back", ()
       answer: "Use available context.",
       references: [
         {
-          chunkId: "00000000-0000-0000-0000-000000000000",
-          sourceType: "card",
-          sourceId: "card-x",
-          excerpt: "Not in context."
+          chunkId: "00000000-0000-0000-0000-000000000000"
         }
       ]
     },
@@ -57,16 +54,10 @@ test("worker: buildGroundedAnswer filters unknown references and falls back", ()
       answer: "Mixed grounding.",
       references: [
         {
-          chunkId: contexts[0].chunkId,
-          sourceType: "thread",
-          sourceId: "different",
-          excerpt: "Different excerpt."
+          chunkId: contexts[0].chunkId
         },
         {
-          chunkId: "00000000-0000-0000-0000-000000000000",
-          sourceType: "card",
-          sourceId: "card-y",
-          excerpt: "Not in context."
+          chunkId: "00000000-0000-0000-0000-000000000000"
         }
       ]
     },

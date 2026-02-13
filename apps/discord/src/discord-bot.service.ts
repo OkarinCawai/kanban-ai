@@ -502,6 +502,38 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
                 required: false
               }
             ]
+          },
+          {
+            type: 1,
+            name: "cover",
+            description: "Generate deterministic cover for a card by UUID",
+            options: [
+              {
+                type: 3,
+                name: "card_id",
+                description: "Card UUID",
+                required: true
+              },
+              {
+                type: 3,
+                name: "style_hint",
+                description: "Optional style hint for the cover",
+                required: false
+              }
+            ]
+          },
+          {
+            type: 1,
+            name: "cover-status",
+            description: "Check current cover status for a card by UUID",
+            options: [
+              {
+                type: 3,
+                name: "card_id",
+                description: "Card UUID",
+                required: true
+              }
+            ]
           }
         ]
       },
@@ -1026,6 +1058,144 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
         return;
       }
 
+      if (command.name === "card" && command.subcommand === "cover") {
+        const cardId = getStringOption(command.options, "card_id");
+        const styleHint = getStringOption(command.options, "style_hint") ?? undefined;
+
+        if (!cardId) {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            "Missing required option: card_id"
+          );
+          return;
+        }
+
+        const queued = await this.callApi(
+          config,
+          discordUserId,
+          "/discord/commands/card-cover",
+          {
+            guildId,
+            channelId,
+            cardId,
+            styleHint
+          }
+        );
+
+        const status = await this.pollCardCoverStatus({
+          config,
+          discordUserId,
+          guildId,
+          channelId,
+          cardId
+        });
+
+        if (status?.status === "completed") {
+          const content = `Cover generated for card \`${cardId}\` (job \`${queued.jobId}\`).`;
+          if (typeof status.imageUrl === "string" && status.imageUrl) {
+            await this.editOriginalResponse(config, interaction, content, {
+              embeds: [
+                {
+                  title: "Card cover",
+                  description: `Card: \`${cardId}\``,
+                  color: 0x22c55e,
+                  image: { url: status.imageUrl }
+                }
+              ]
+            });
+            return;
+          }
+
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            `${content}\n(No imageUrl available; ensure SUPABASE_SERVICE_ROLE_KEY is set in API env.)`
+          );
+          return;
+        }
+
+        if (status?.status === "failed") {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            `Cover generation failed: ${status.failureReason ?? "unknown error"}`
+          );
+          return;
+        }
+
+        await this.editOriginalResponse(
+          config,
+          interaction,
+          `Cover job queued (\`${queued.jobId}\`). Still processing; run \`/card cover-status\` shortly.`
+        );
+        return;
+      }
+
+      if (command.name === "card" && command.subcommand === "cover-status") {
+        const cardId = getStringOption(command.options, "card_id");
+
+        if (!cardId) {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            "Missing required option: card_id"
+          );
+          return;
+        }
+
+        const status = await this.callApi(
+          config,
+          discordUserId,
+          "/discord/commands/card-cover-status",
+          {
+            guildId,
+            channelId,
+            cardId
+          }
+        );
+
+        if (status?.status === "completed") {
+          const content = `Cover is ready for card \`${cardId}\`.`;
+          if (typeof status.imageUrl === "string" && status.imageUrl) {
+            await this.editOriginalResponse(config, interaction, content, {
+              embeds: [
+                {
+                  title: "Card cover",
+                  description: `Card: \`${cardId}\``,
+                  color: 0x22c55e,
+                  image: { url: status.imageUrl }
+                }
+              ]
+            });
+            return;
+          }
+
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            `${content}\n(No imageUrl available; ensure SUPABASE_SERVICE_ROLE_KEY is set in API env.)`
+          );
+          return;
+        }
+
+        if (status?.status === "failed") {
+          await this.editOriginalResponse(
+            config,
+            interaction,
+            `Cover job failed: ${status.failureReason ?? "unknown error"}`
+          );
+          return;
+        }
+
+        await this.editOriginalResponse(
+          config,
+          interaction,
+          `Cover status for card \`${cardId}\`: ${status?.status ?? "queued"}.`
+        );
+        return;
+      }
+
       if (command.name === "ai" && command.subcommand === "ask") {
         const question = getStringOption(command.options, "question");
         const topK = getIntegerOption(command.options, "top_k") ?? undefined;
@@ -1251,14 +1421,22 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
     config: DiscordConfig,
     interaction: DiscordInteraction,
     content: string,
-    components?: unknown[]
+    componentsOrOptions?: unknown[] | { components?: unknown[]; embeds?: unknown[] }
   ): Promise<void> {
     const url = `https://discord.com/api/v10/webhooks/${config.applicationId}/${interaction.token}/messages/@original`;
     const payload: Record<string, unknown> = {
       content: content.slice(0, 2000)
     };
-    if (components !== undefined) {
-      payload.components = components;
+
+    if (Array.isArray(componentsOrOptions)) {
+      payload.components = componentsOrOptions;
+    } else if (componentsOrOptions && typeof componentsOrOptions === "object") {
+      if (Array.isArray(componentsOrOptions.components)) {
+        payload.components = componentsOrOptions.components;
+      }
+      if (Array.isArray(componentsOrOptions.embeds)) {
+        payload.embeds = componentsOrOptions.embeds;
+      }
     }
 
     await fetch(url, {
@@ -1425,6 +1603,36 @@ export class DiscordBotService implements OnModuleInit, OnModuleDestroy {
         args.config,
         args.discordUserId,
         "/discord/commands/card-summary-status",
+        {
+          guildId: args.guildId,
+          channelId: args.channelId,
+          cardId: args.cardId
+        }
+      );
+
+      if (latest?.status === "completed" || latest?.status === "failed") {
+        return latest;
+      }
+
+      await sleep(1500);
+    }
+
+    return latest;
+  }
+
+  private async pollCardCoverStatus(args: {
+    config: DiscordConfig;
+    discordUserId: string;
+    guildId: string;
+    channelId: string;
+    cardId: string;
+  }): Promise<any | null> {
+    let latest: any | null = null;
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      latest = await this.callApi(
+        args.config,
+        args.discordUserId,
+        "/discord/commands/card-cover-status",
         {
           guildId: args.guildId,
           channelId: args.channelId,

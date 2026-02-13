@@ -215,7 +215,12 @@ export const outboxEventTypeSchema = z.enum([
   "card.moved",
   "ai.card-summary.requested",
   "ai.ask-board.requested",
-  "ai.thread-to-card.requested"
+  "ai.thread-to-card.requested",
+  "ai.weekly-recap.requested",
+  "ai.daily-standup.requested",
+  "cover.generate-spec.requested",
+  "cover.render.requested",
+  "hygiene.detect-stuck.requested"
 ]);
 
 export const outboxEventSchema = z.object({

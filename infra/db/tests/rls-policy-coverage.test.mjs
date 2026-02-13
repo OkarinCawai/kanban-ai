@@ -26,7 +26,11 @@ const requiredTables = [
   "discord_guilds",
   "discord_channel_mappings",
   "card_summaries",
+  "card_covers",
   "ai_ask_requests",
+  "board_weekly_recaps",
+  "board_daily_standups",
+  "board_stuck_reports",
   "thread_card_extractions",
   "documents",
   "document_chunks",
@@ -63,9 +67,17 @@ test("policy: board/list/card read and write policies are present", () => {
     "cards_write_policy",
     "card_summaries_select_policy",
     "card_summaries_write_policy",
+    "card_covers_select_policy",
+    "card_covers_write_policy",
     "ai_ask_requests_select_policy",
     "ai_ask_requests_insert_policy",
     "ai_ask_requests_update_policy",
+    "board_weekly_recaps_select_policy",
+    "board_weekly_recaps_write_policy",
+    "board_daily_standups_select_policy",
+    "board_daily_standups_write_policy",
+    "board_stuck_reports_select_policy",
+    "board_stuck_reports_write_policy",
     "thread_card_extractions_select_policy",
     "thread_card_extractions_insert_policy",
     "thread_card_extractions_update_policy",
@@ -122,5 +134,13 @@ test("policy: thread-to-card writes require editor or admin role", () => {
     sql,
     /create policy thread_card_extractions_insert_policy[\s\S]*has_org_role\(org_id,\s*array\['editor',\s*'admin'\]\)[\s\S]*requester_user_id\s*=\s*public\.current_user_id\(\)/i,
     "thread_card_extractions_insert_policy must require editor/admin and requester ownership."
+  );
+});
+
+test("policy: card cover writes require editor or admin role", () => {
+  assert.match(
+    sql,
+    /create policy card_covers_write_policy[\s\S]*has_org_role\(org_id,\s*array\['editor',\s*'admin'\]\)/i,
+    "card_covers_write_policy must require editor/admin."
   );
 });

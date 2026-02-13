@@ -5,10 +5,14 @@ This plan turns the brief into execution checkpoints for multiple agents.
 ## Current Delivery Sequence (2026-02-12)
 
 Execution priority for remaining milestones is explicitly:
-1. Milestone 4 (Thread to Card)
-2. Milestone 5 (Deterministic Covers)
-3. Milestone 6 (Hygiene + Digests)
-4. Milestone 9 (Ask-AI Evaluation Granularity + Quality Gates)
+1. Milestone 6 (Hygiene + Digests)
+2. Milestone 9 (Ask-AI Evaluation Granularity + Quality Gates)
+3. Milestone 10 (Web React Migration)
+4. Milestone 11 (Search + Discovery)
+5. Milestone 12 (Generative Board Creation)
+6. Milestone 13 (Rich Text Descriptions)
+7. Milestone 14 (Realtime Collaboration + Presence)
+8. Milestone 15 (Intelligent Agents)
 
 ## Milestone 1: Core Kanban + Security Base
 
@@ -105,6 +109,16 @@ Exit criteria:
 
 ## Milestone 5: Deterministic Covers
 
+Status (2026-02-12): `completed`
+
+Progress snapshot:
+- [x] Added `CoverSpec` + cover outbox event schemas in `packages/contracts`.
+- [x] Added migration `0006_m5_deterministic_covers.sql` with RLS-protected `public.card_covers` table.
+- [x] Core use-cases enqueue cover jobs and expose `GET /cards/:cardId/cover` status reads.
+- [x] Worker processes `cover.generate-spec.requested` (Gemini -> `CoverSpec`) and `cover.render.requested` (deterministic PNG render + Storage upload).
+- [x] Web board cards can queue/poll cover jobs and display signed cover previews when available.
+- [x] Discord cover commands/embeds (queue + status + image preview).
+
 Deliverables:
 - `CoverSpec` contracts and validation.
 - `cover.generateSpec` and `cover.render` jobs.
@@ -117,10 +131,19 @@ Exit criteria:
 
 ## Milestone 6: Hygiene and Digests
 
+Status (2026-02-12): `completed`
+
+Progress snapshot:
+- [x] Added migration `0007_m6_hygiene_digests.sql` with RLS-protected `public.board_weekly_recaps` + `public.board_stuck_reports`.
+- [x] Core use-cases enqueue + status reads for weekly recap and stuck detection.
+- [x] Worker processes `ai.weekly-recap.requested` and `hygiene.detect-stuck.requested` outbox jobs.
+- [x] `npm run verify:live` validates M6 end-to-end (queue + completion) for both jobs.
+- [x] Daily standup summary format (contracts + worker + endpoints) implemented.
+
 Deliverables:
 - Stuck-card detection.
 - Weekly recap generation.
-- Optional daily standup summary format.
+- Daily standup summary format.
 
 Exit criteria:
 - Scheduled jobs execute safely with retry/idempotency protections.
@@ -196,16 +219,16 @@ Exit criteria:
 
 ## Milestone 9: Ask-AI Evaluation Granularity + Quality Gates
 
-Status (2026-02-11): `planned`
+Status (2026-02-12): `completed`
 
 Progress snapshot:
-- [ ] Curated evaluation fixture boards are defined (known-good answers + references).
-- [ ] Permission-boundary evaluation suite is defined (cross-org/cross-board denial cases).
-- [ ] Grounding quality checks are defined (reference precision/coverage expectations).
-- [ ] Async lifecycle checks are defined (`queued/processing/completed/failed` timing + UX states).
-- [ ] Fallback-path checks are defined (embedding failure -> lexical fallback behavior).
-- [ ] Prompt-injection resilience checks are defined (ignore adversarial card text).
-- [ ] Dashboard/report output for evaluation runs is defined (pass/fail by scenario).
+- [x] Curated evaluation fixture boards are defined (seeded by eval script).
+- [x] Permission-boundary evaluation suite is defined (cross-org denial cases).
+- [x] Grounding quality checks are defined (references must map to board-scoped chunks and match excerpts).
+- [x] Async lifecycle checks are defined (bounded polling to completed/failed).
+- [x] Fallback-path checks are defined (embedding failure -> lexical fallback) via large-fixture board.
+- [x] Prompt-injection resilience checks are defined (ignore adversarial card text).
+- [x] Dashboard/report output for evaluation runs is defined (pass/fail by scenario summary).
 
 Deliverables:
 - Test-plan artifact:
@@ -230,6 +253,126 @@ Exit criteria:
 - Grounded-answer scenarios meet defined thresholds in the evaluation plan.
 - Failure/fallback scenarios are observable and recoverable without manual DB edits.
 - Delivery order note: Execute after M4/M5/M6 are complete.
+
+## Milestone 10: Web React Migration
+
+Status (2026-02-12): `planned`
+
+Progress snapshot:
+- [ ] Scaffold a new React web app (`apps/web-react`) using Vite + TypeScript.
+- [ ] Keep `packages/contracts` as the source of truth for DTOs/schemas; do not fork payload shapes.
+- [ ] Port core board flows (create board/list/card; move cards with optimistic concurrency + version).
+- [ ] Replace the current drag-and-drop implementation with a production-grade DnD library (`@hello-pangea/dnd` or equivalent).
+- [ ] Use a query/cache layer (TanStack Query recommended) and keep optimistic UI for safe operations.
+- [ ] Port async AI surfaces (ask-board, summarize, cover) with the same `queued/processing/completed/failed` UX model.
+- [ ] Incremental cutover: keep `apps/web` running until `apps/web-react` reaches parity and passes the same verification suite.
+
+Deliverables:
+- New app: `apps/web-react` (React + Vite).
+- Parity checklist vs `apps/web` (board, details, AI actions, auth).
+- Contract-validated API client wiring (Zod validation from `packages/contracts`).
+- Minimal E2E smoke verification script/update to ensure core flows still work after cutover.
+
+Exit criteria:
+- React UI supports the full M1-M5 workflow set at feature parity (board CRUD, moves, details, async AI actions, cover previews).
+- `npm run test` and `npm run verify:live` remain green during and after cutover.
+
+## Milestone 11: Search + Discovery (FTS + Optional Semantic)
+
+Status (2026-02-12): `planned`
+
+Progress snapshot:
+- [ ] Add Postgres full-text search over cards (title + description + key metadata) using `tsvector` + GIN index.
+- [ ] Add a scoped search API endpoint (board/org scoped; enforced by RLS).
+- [ ] Add a web search UI (query box, result list, and jump-to-card interaction).
+- [ ] Optional: semantic search using `pgvector` (embeddings generated async in the worker) with permission-aware retrieval.
+
+Deliverables:
+- Schema migration for FTS columns/indexes.
+- API search endpoint(s) with contract-defined inputs/outputs in `packages/contracts`.
+- Tests for correctness and denial cases (no cross-org leakage).
+
+Exit criteria:
+- Search is fast enough for typical boards and returns only cards the requester is allowed to read.
+- FTS is shipped first; semantic search is optional and gated behind stable embedding jobs/tests.
+
+## Milestone 12: Generative Board Creation (Async)
+
+Status (2026-02-12): `planned`
+
+Progress snapshot:
+- [ ] Define a strict `BoardBlueprint` contract (board title, lists, cards, ordering, optional metadata) in `packages/contracts`.
+- [ ] Add API endpoint(s) to queue board generation as an async job (outbox event) and read status.
+- [ ] Worker job calls Gemini through an adapter and validates output strictly against `BoardBlueprint`.
+- [ ] Add a preview + confirm flow: users review the blueprint before any DB writes.
+- [ ] Confirm step creates board/lists/cards transactionally via `KanbanRepository`.
+- [ ] Idempotency keys prevent duplicate boards across retries.
+
+Deliverables:
+- New async job type + status storage (RLS-protected).
+- Preview payload and confirm payload contracts.
+- Worker implementation with retry-safe semantics.
+
+Exit criteria:
+- Board generation never runs synchronously in request/response.
+- Confirm is atomic (no partially created boards), retry-safe, and permission-scoped.
+
+## Milestone 13: Rich Text Descriptions (Tiptap)
+
+Status (2026-02-12): `planned`
+
+Progress snapshot:
+- [ ] Add rich text editing for card descriptions in the React UI (Tiptap).
+- [ ] Store description in a durable format (JSONB preferred) with safe rendering and backwards compatibility.
+- [ ] Keep checklists as structured data (do not embed checklist semantics inside rich text).
+- [ ] Ensure search indexing covers the rendered plain-text form for FTS.
+- [ ] Migrate existing plain text descriptions forward without data loss.
+
+Deliverables:
+- Schema changes + API payload updates captured in `packages/contracts`.
+- UI editor integration with safe rendering and serialization stability.
+- Tests for persistence, rendering safety, and indexing.
+
+Exit criteria:
+- Users can create/edit formatted descriptions (bold, lists, code) without breaking existing flows.
+- Description content is searchable and does not introduce injection/XSS issues.
+
+## Milestone 14: Realtime Collaboration + Presence (Post-v1)
+
+Status (2026-02-12): `planned`
+
+Progress snapshot:
+- [ ] Revisit D-008 scope boundary and explicitly accept realtime collaboration as a post-v1 milestone.
+- [ ] Implement board-scoped realtime updates (Supabase Realtime) with an RLS-safe strategy (direct `postgres_changes` only if proven safe; otherwise subscribe to an RLS-protected event stream table).
+- [ ] Presence: show "who is here" at board-level (and optionally card-level focus).
+- [ ] Conflict handling: keep version-based writes; when stale writes occur, surface a recoverable UX.
+- [ ] Keep polling as a fallback mode for degraded realtime conditions.
+
+Deliverables:
+- Realtime adapter wiring for the web client.
+- Presence model + UI affordance.
+- Tests/verification for authorization boundaries and multi-client sync.
+
+Exit criteria:
+- Two clients on the same board see updates within a near-instant latency budget and without cross-org leakage.
+- Realtime is additive (optimistic UI + fallback) and does not weaken RLS guarantees.
+
+## Milestone 15: Intelligent Agents (Suggestion-first, Post-v1)
+
+Status (2026-02-12): `planned`
+
+Progress snapshot:
+- [ ] Auto-triage runs async on card creation and produces suggestions (labels/assignees/dates), not silent mutations.
+- [ ] "Break down with AI" generates proposed checklist items as a job; user chooses to apply.
+- [ ] All agent jobs are retry-safe and idempotent with deterministic keys.
+
+Deliverables:
+- New async job types + status reads.
+- Suggestion storage model with explicit user-apply actions.
+- Tests for idempotency and permission scope.
+
+Exit criteria:
+- Agents improve workflow without surprising users (suggestions first) and never bypass RLS.
 
 ## Cross-Cutting Requirements (all milestones)
 

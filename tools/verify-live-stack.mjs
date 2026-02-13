@@ -59,6 +59,83 @@ const readJsonSafely = async (response) => {
   }
 };
 
+const callSupabaseStorage = async (args) => {
+  const { supabaseUrl, serviceRoleKey, path, method, body, timeoutMs } = args;
+  const url = `${supabaseUrl.replace(/\/$/, "")}${path}`;
+  const response = await fetchWithTimeout(
+    url,
+    {
+      method,
+      headers: {
+        "content-type": "application/json",
+        apikey: serviceRoleKey,
+        authorization: `Bearer ${serviceRoleKey}`
+      },
+      body: body ? JSON.stringify(body) : undefined
+    },
+    timeoutMs ?? 8000
+  );
+
+  return {
+    status: response.status,
+    payload: await readJsonSafely(response)
+  };
+};
+
+const ensureStorageBucketExists = async (args) => {
+  const { supabaseUrl, serviceRoleKey, bucketId } = args;
+
+  const listed = await callSupabaseStorage({
+    supabaseUrl,
+    serviceRoleKey,
+    path: "/storage/v1/bucket",
+    method: "GET"
+  });
+
+  if (listed.status !== 200 || !Array.isArray(listed.payload)) {
+    fail(
+      "m5-cover-bucket",
+      `Unable to list storage buckets (status=${listed.status}). Ensure Storage is enabled and SUPABASE_SERVICE_ROLE_KEY is valid.`
+    );
+    return false;
+  }
+
+  const exists = listed.payload.some(
+    (bucket) =>
+      bucket &&
+      typeof bucket === "object" &&
+      (bucket.id === bucketId || bucket.name === bucketId)
+  );
+
+  if (exists) {
+    pass("m5-cover-bucket", `Storage bucket "${bucketId}" exists.`);
+    return true;
+  }
+
+  const created = await callSupabaseStorage({
+    supabaseUrl,
+    serviceRoleKey,
+    path: "/storage/v1/bucket",
+    method: "POST",
+    body: {
+      id: bucketId,
+      name: bucketId,
+      public: false
+    }
+  });
+
+  if (created.status !== 200 && created.status !== 201) {
+    fail(
+      "m5-cover-bucket",
+      `Failed to create storage bucket "${bucketId}" (status=${created.status}).`
+    );
+    return false;
+  }
+
+  pass("m5-cover-bucket", `Created storage bucket "${bucketId}".`);
+  return true;
+};
+
 const verifyLocalHttp = async (args) => {
   const { check, url, options, predicate, expectation } = args;
   try {
@@ -187,14 +264,15 @@ const verifyM2DatabaseState = async (client) => {
 
   const probe = await client.query(
     `
-      select
-        i.discord_user_id,
-        i.user_id,
-        g.org_id,
-        m.guild_id,
-        m.channel_id,
-        m.default_list_id,
-        mem.role
+	      select
+	        i.discord_user_id,
+	        i.user_id,
+	        g.org_id,
+	        m.board_id,
+	        m.guild_id,
+	        m.channel_id,
+	        m.default_list_id,
+	        mem.role
       from public.discord_channel_mappings m
       inner join public.discord_guilds g
         on g.guild_id = m.guild_id
@@ -246,6 +324,29 @@ const callDiscordBridge = async (args) => {
     },
     body: JSON.stringify(body)
   });
+
+  return {
+    status: response.status,
+    payload: await readJsonSafely(response)
+  };
+};
+
+const callApiAsUser = async (args) => {
+  const { path, method = "POST", userId, orgId, role, body, timeoutMs } = args;
+  const response = await fetchWithTimeout(
+    `http://localhost:3001${path}`,
+    {
+      method,
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": userId,
+        "x-org-id": orgId,
+        "x-role": role
+      },
+      body: body ? JSON.stringify(body) : undefined
+    },
+    timeoutMs ?? 9000
+  );
 
   return {
     status: response.status,
@@ -322,6 +423,514 @@ const verifyM2CommandBridge = async (args) => {
     pass("m2-card-move", "Discord /card move bridge moved the probe card.");
   } finally {
     await client.query("delete from public.cards where id = $1::uuid", [createdCardId]);
+  }
+};
+
+const verifyM5CoverBridge = async (args) => {
+  const { client, token, probeRow } = args;
+
+  const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!geminiApiKey) {
+    warn("m5-cover", "GEMINI_API_KEY is not set; skipping live M5 cover verification.");
+    return;
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  const bucketId = (process.env.COVER_BUCKET?.trim() || "covers").trim();
+
+  if (!supabaseUrl) {
+    warn("m5-cover", "SUPABASE_URL is not set; skipping live M5 cover verification.");
+    return;
+  }
+
+  if (!serviceRoleKey) {
+    warn(
+      "m5-cover",
+      "SUPABASE_SERVICE_ROLE_KEY is not set; skipping cover signed URL + bucket verification."
+    );
+    return;
+  }
+
+  const bucketReady = await ensureStorageBucketExists({ supabaseUrl, serviceRoleKey, bucketId });
+  if (!bucketReady) {
+    return;
+  }
+
+  const discordUserId = String(probeRow.discord_user_id);
+  const guildId = String(probeRow.guild_id);
+  const channelId = String(probeRow.channel_id);
+
+  let createdCardId = null;
+  let coverJobId = null;
+  let objectPath = null;
+
+  try {
+    const created = await callDiscordBridge({
+      path: "/discord/commands/card-create",
+      token,
+      discordUserId,
+      body: {
+        guildId,
+        channelId,
+        title: `M5 cover probe ${Date.now()}`,
+        description: "Temporary card created by verify-live-stack script for cover rendering."
+      }
+    });
+
+    createdCardId = created.payload?.card?.id ?? null;
+    if (created.status !== 201 || !createdCardId) {
+      fail(
+        "m5-cover-create",
+        `Expected 201 + card payload from /card-create, got status ${created.status}.`
+      );
+      return;
+    }
+    pass("m5-cover-create", `Created probe card ${createdCardId}.`);
+
+    const queued = await callDiscordBridge({
+      path: "/discord/commands/card-cover",
+      token,
+      discordUserId,
+      body: {
+        guildId,
+        channelId,
+        cardId: createdCardId,
+        styleHint: "blueprint, bold, high-contrast"
+      }
+    });
+
+    coverJobId = queued.payload?.jobId ?? null;
+    if (queued.status !== 201 || !coverJobId) {
+      fail(
+        "m5-cover-queue",
+        `Expected 201 + jobId from /card-cover, got status ${queued.status}.`
+      );
+      return;
+    }
+
+    pass("m5-cover-queue", `Cover job queued (jobId=${coverJobId}).`);
+
+    let latestStatus = null;
+    const maxAttempts = 50;
+    const delayMs = 2000;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const statusResponse = await callDiscordBridge({
+        path: "/discord/commands/card-cover-status",
+        token,
+        discordUserId,
+        body: { guildId, channelId, cardId: createdCardId }
+      });
+
+      if (statusResponse.status !== 201) {
+        fail(
+          "m5-cover-status",
+          `Expected 201 from /card-cover-status, got status ${statusResponse.status}.`
+        );
+        return;
+      }
+
+      latestStatus = statusResponse.payload;
+      const statusValue = latestStatus?.status;
+      if (statusValue === "completed" || statusValue === "failed") {
+        break;
+      }
+
+      if (attempt < maxAttempts) {
+        await sleep(delayMs);
+      }
+    }
+
+    if (!latestStatus || !["completed", "failed"].includes(latestStatus.status)) {
+      fail(
+        "m5-cover-status",
+        "Cover job did not reach completed/failed state within polling window."
+      );
+      return;
+    }
+
+    if (latestStatus.status === "failed") {
+      fail(
+        "m5-cover-status",
+        `Cover job failed: ${latestStatus.failureReason ?? "unknown error"}.`
+      );
+      return;
+    }
+
+    objectPath = typeof latestStatus.objectPath === "string" ? latestStatus.objectPath : null;
+
+    if (!latestStatus.imageUrl) {
+      fail(
+        "m5-cover-status",
+        "Cover job completed but imageUrl is missing. Ensure API has SUPABASE_SERVICE_ROLE_KEY configured."
+      );
+      return;
+    }
+
+    pass("m5-cover-status", "Cover job completed and returned imageUrl.");
+
+    try {
+      const response = await fetchWithTimeout(latestStatus.imageUrl, { method: "GET" }, 8000);
+      if (response.status >= 200 && response.status < 500) {
+        pass("m5-cover-fetch", `Fetched signed cover URL (HTTP ${response.status}).`);
+      } else {
+        warn("m5-cover-fetch", `Signed cover URL fetch returned HTTP ${response.status}.`);
+      }
+    } catch (error) {
+      warn(
+        "m5-cover-fetch",
+        `Signed cover URL fetch failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  } finally {
+    if (createdCardId) {
+      await client.query(
+        "delete from public.outbox_events where payload->>'cardId' = $1",
+        [createdCardId]
+      );
+      await client.query("delete from public.cards where id = $1::uuid", [createdCardId]);
+    }
+
+    if (objectPath) {
+      await callSupabaseStorage({
+        supabaseUrl,
+        serviceRoleKey,
+        path: `/storage/v1/object/${bucketId}/${objectPath}`,
+        method: "DELETE",
+        timeoutMs: 8000
+      }).catch(() => undefined);
+    }
+  }
+};
+
+const verifyM6HygieneAndDigests = async (args) => {
+  const { client, token, probeRow } = args;
+
+  const boardId = probeRow.board_id ? String(probeRow.board_id) : null;
+  if (!boardId) {
+    warn("m6", "Mapped channel is missing board_id; skipping M6 verification.");
+    return;
+  }
+
+  const userId = String(probeRow.user_id);
+  const orgId = String(probeRow.org_id);
+  const role = String(probeRow.role);
+
+  const discordUserId = String(probeRow.discord_user_id);
+  const guildId = String(probeRow.guild_id);
+  const channelId = String(probeRow.channel_id);
+
+  let stuckCardId = null;
+  let freshCardId = null;
+  let stuckJobId = null;
+  let recapJobId = null;
+  let standupJobId = null;
+
+  try {
+    const createdStuck = await callDiscordBridge({
+      path: "/discord/commands/card-create",
+      token,
+      discordUserId,
+      body: {
+        guildId,
+        channelId,
+        title: `M6 stuck probe ${Date.now()}`,
+        description: "Temporary card created by verify-live-stack for stuck detection."
+      }
+    });
+
+    stuckCardId = createdStuck.payload?.card?.id ?? null;
+    if (createdStuck.status !== 201 || !stuckCardId) {
+      fail(
+        "m6-stuck-create",
+        `Expected 201 + card payload from /card-create, got status ${createdStuck.status}.`
+      );
+      return;
+    }
+    pass("m6-stuck-create", `Created stuck probe card ${stuckCardId}.`);
+
+    await client.query(
+      `
+        update public.cards
+        set
+          updated_at = now() - interval '14 days',
+          due_at = now() - interval '2 days'
+        where id = $1::uuid
+      `,
+      [stuckCardId]
+    );
+
+    const queuedStuck = await callApiAsUser({
+      path: `/boards/${boardId}/hygiene/detect-stuck`,
+      method: "POST",
+      userId,
+      orgId,
+      role,
+      body: { thresholdDays: 7 }
+    });
+
+    stuckJobId = queuedStuck.payload?.jobId ?? null;
+    if (queuedStuck.status !== 201 || !stuckJobId) {
+      fail(
+        "m6-stuck-queue",
+        `Expected 201 + jobId from /hygiene/detect-stuck, got status ${queuedStuck.status}.`
+      );
+      return;
+    }
+    pass("m6-stuck-queue", `Stuck detection queued (jobId=${stuckJobId}).`);
+
+    let stuckStatus = null;
+    for (let attempt = 1; attempt <= 30; attempt += 1) {
+      const statusResponse = await callApiAsUser({
+        path: `/boards/${boardId}/hygiene/stuck`,
+        method: "GET",
+        userId,
+        orgId,
+        role
+      });
+
+      if (statusResponse.status !== 200) {
+        fail(
+          "m6-stuck-status",
+          `Expected 200 from /hygiene/stuck, got status ${statusResponse.status}.`
+        );
+        return;
+      }
+
+      stuckStatus = statusResponse.payload;
+      if (stuckStatus?.status === "completed" || stuckStatus?.status === "failed") {
+        break;
+      }
+
+      await sleep(1500);
+    }
+
+    if (!stuckStatus || !["completed", "failed"].includes(stuckStatus.status)) {
+      fail(
+        "m6-stuck-status",
+        "Stuck detection did not reach completed/failed state within polling window."
+      );
+      return;
+    }
+
+    if (stuckStatus.status === "failed") {
+      fail(
+        "m6-stuck-status",
+        `Stuck detection failed: ${stuckStatus.failureReason ?? "unknown error"}.`
+      );
+      return;
+    }
+
+    const reportedIds = Array.isArray(stuckStatus.report?.cards)
+      ? stuckStatus.report.cards.map((c) => c.cardId)
+      : [];
+
+    if (!reportedIds.includes(stuckCardId)) {
+      fail(
+        "m6-stuck-status",
+        "Stuck report completed but did not include the probe card. Ensure updated_at backfill worked and thresholdDays is respected."
+      );
+      return;
+    }
+
+    pass("m6-stuck-status", "Stuck report completed and included the probe card.");
+
+    const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!geminiApiKey) {
+      warn(
+        "m6-recap",
+        "GEMINI_API_KEY is not set; skipping weekly recap + daily standup verification."
+      );
+      return;
+    }
+
+    const createdFresh = await callDiscordBridge({
+      path: "/discord/commands/card-create",
+      token,
+      discordUserId,
+      body: {
+        guildId,
+        channelId,
+        title: `M6 recap probe ${Date.now()}`,
+        description: "Temporary card created by verify-live-stack for weekly recap generation."
+      }
+    });
+
+    freshCardId = createdFresh.payload?.card?.id ?? null;
+    if (createdFresh.status !== 201 || !freshCardId) {
+      fail(
+        "m6-recap-create",
+        `Expected 201 + card payload from /card-create, got status ${createdFresh.status}.`
+      );
+      return;
+    }
+    pass("m6-recap-create", `Created recap probe card ${freshCardId}.`);
+
+    const queuedRecap = await callApiAsUser({
+      path: `/boards/${boardId}/weekly-recap`,
+      method: "POST",
+      userId,
+      orgId,
+      role,
+      body: { lookbackDays: 7, styleHint: "crisp, executive-friendly" },
+      timeoutMs: 12000
+    });
+
+    recapJobId = queuedRecap.payload?.jobId ?? null;
+    if (queuedRecap.status !== 201 || !recapJobId) {
+      fail(
+        "m6-recap-queue",
+        `Expected 201 + jobId from /weekly-recap, got status ${queuedRecap.status}.`
+      );
+      return;
+    }
+    pass("m6-recap-queue", `Weekly recap queued (jobId=${recapJobId}).`);
+
+    let recapStatus = null;
+    for (let attempt = 1; attempt <= 50; attempt += 1) {
+      const statusResponse = await callApiAsUser({
+        path: `/boards/${boardId}/weekly-recap`,
+        method: "GET",
+        userId,
+        orgId,
+        role,
+        timeoutMs: 12000
+      });
+
+      if (statusResponse.status !== 200) {
+        fail(
+          "m6-recap-status",
+          `Expected 200 from /weekly-recap, got status ${statusResponse.status}.`
+        );
+        return;
+      }
+
+      recapStatus = statusResponse.payload;
+      if (recapStatus?.status === "completed" || recapStatus?.status === "failed") {
+        break;
+      }
+
+      await sleep(2000);
+    }
+
+    if (!recapStatus || !["completed", "failed"].includes(recapStatus.status)) {
+      fail(
+        "m6-recap-status",
+        "Weekly recap did not reach completed/failed state within polling window."
+      );
+      return;
+    }
+
+    if (recapStatus.status === "failed") {
+      fail(
+        "m6-recap-status",
+        `Weekly recap failed: ${recapStatus.failureReason ?? "unknown error"}.`
+      );
+      return;
+    }
+
+    if (!recapStatus.recap?.summary) {
+      fail("m6-recap-status", "Weekly recap completed but summary is missing.");
+      return;
+    }
+
+    pass("m6-recap-status", "Weekly recap completed and returned recap JSON.");
+
+    const queuedStandup = await callApiAsUser({
+      path: `/boards/${boardId}/daily-standup`,
+      method: "POST",
+      userId,
+      orgId,
+      role,
+      body: { lookbackHours: 24, styleHint: "crisp, concrete, include card titles when relevant" },
+      timeoutMs: 12000
+    });
+
+    standupJobId = queuedStandup.payload?.jobId ?? null;
+    if (queuedStandup.status !== 201 || !standupJobId) {
+      fail(
+        "m6-standup-queue",
+        `Expected 201 + jobId from /daily-standup, got status ${queuedStandup.status}.`
+      );
+      return;
+    }
+    pass("m6-standup-queue", `Daily standup queued (jobId=${standupJobId}).`);
+
+    let standupStatus = null;
+    for (let attempt = 1; attempt <= 50; attempt += 1) {
+      const statusResponse = await callApiAsUser({
+        path: `/boards/${boardId}/daily-standup`,
+        method: "GET",
+        userId,
+        orgId,
+        role,
+        timeoutMs: 12000
+      });
+
+      if (statusResponse.status !== 200) {
+        fail(
+          "m6-standup-status",
+          `Expected 200 from /daily-standup, got status ${statusResponse.status}.`
+        );
+        return;
+      }
+
+      standupStatus = statusResponse.payload;
+      if (standupStatus?.status === "completed" || standupStatus?.status === "failed") {
+        break;
+      }
+
+      await sleep(2000);
+    }
+
+    if (!standupStatus || !["completed", "failed"].includes(standupStatus.status)) {
+      fail(
+        "m6-standup-status",
+        "Daily standup did not reach completed/failed state within polling window."
+      );
+      return;
+    }
+
+    if (standupStatus.status === "failed") {
+      fail(
+        "m6-standup-status",
+        `Daily standup failed: ${standupStatus.failureReason ?? "unknown error"}.`
+      );
+      return;
+    }
+
+    if (!Array.isArray(standupStatus.standup?.today) || standupStatus.standup.today.length < 1) {
+      fail("m6-standup-status", "Daily standup completed but today entries are missing.");
+      return;
+    }
+
+    pass("m6-standup-status", "Daily standup completed and returned standup JSON.");
+  } finally {
+    if (stuckCardId) {
+      await client.query("delete from public.outbox_events where payload->>'cardId' = $1", [
+        stuckCardId
+      ]);
+      await client.query("delete from public.cards where id = $1::uuid", [stuckCardId]);
+    }
+
+    if (freshCardId) {
+      await client.query("delete from public.outbox_events where payload->>'cardId' = $1", [
+        freshCardId
+      ]);
+      await client.query("delete from public.cards where id = $1::uuid", [freshCardId]);
+    }
+
+    if (stuckJobId) {
+      await client.query("delete from public.outbox_events where id = $1::uuid", [stuckJobId]);
+    }
+
+    if (recapJobId) {
+      await client.query("delete from public.outbox_events where id = $1::uuid", [recapJobId]);
+    }
+
+    if (standupJobId) {
+      await client.query("delete from public.outbox_events where id = $1::uuid", [standupJobId]);
+    }
   }
 };
 
@@ -603,11 +1212,21 @@ const run = async () => {
           token: internalToken,
           probeRow
         });
-        await verifyM4ThreadToCardBridge({
-          client,
-          token: internalToken,
-          probeRow
-        });
+	        await verifyM5CoverBridge({
+	          client,
+	          token: internalToken,
+	          probeRow
+	        });
+	        await verifyM6HygieneAndDigests({
+	          client,
+	          token: internalToken,
+	          probeRow
+	        });
+	        await verifyM4ThreadToCardBridge({
+	          client,
+	          token: internalToken,
+	          probeRow
+	        });
       }
     } catch (error) {
       fail(

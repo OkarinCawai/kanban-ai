@@ -67,6 +67,41 @@ export const pollCardSummary = async (
   return latest;
 };
 
+export const pollCardCover = async (
+  cardId: string,
+  attempts = 10,
+  intervalMs = 1500,
+  onStatus?: (status: UiStatus, attempt: number) => void
+): Promise<PollResult | null> => {
+  let latest: PollResult | null = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    latest = await callApi<PollResult>(
+      `/cards/${cardId}/cover`,
+      "GET",
+      undefined,
+      "card-cover-poll"
+    );
+
+    const nextStatus = toUiStatus(latest?.status ?? "queued");
+    recordPollEvent({
+      feature: "card-cover",
+      targetId: cardId,
+      attempt,
+      status: nextStatus,
+      at: nowIso()
+    });
+
+    onStatus?.(nextStatus, attempt);
+    if (STATUS_TERMINAL.has(nextStatus)) {
+      return latest;
+    }
+
+    await sleep(intervalMs);
+  }
+
+  return latest;
+};
+
 export const pollAskBoardResult = async (
   jobId: string,
   attempts = 10,

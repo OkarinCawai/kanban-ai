@@ -14,10 +14,22 @@ export const askBoardInputSchema = z.object({
   topK: z.number().int().positive().max(20).optional()
 });
 
+export const queueWeeklyRecapInputSchema = z.object({
+  lookbackDays: z.number().int().positive().max(30).optional(),
+  styleHint: z.string().trim().max(200).optional()
+});
+
+export const queueDailyStandupInputSchema = z.object({
+  lookbackHours: z.number().int().positive().max(72).optional(),
+  styleHint: z.string().trim().max(200).optional()
+});
+
 export const aiEventTypeSchema = z.enum([
   "ai.card-summary.requested",
   "ai.ask-board.requested",
-  "ai.thread-to-card.requested"
+  "ai.thread-to-card.requested",
+  "ai.weekly-recap.requested",
+  "ai.daily-standup.requested"
 ]);
 
 export const aiJobStatusSchema = z.enum([
@@ -73,11 +85,77 @@ export const aiThreadToCardRequestedPayloadSchema = z.object({
   transcript: nonEmptyString.max(40_000)
 });
 
+export const aiWeeklyRecapRequestedPayloadSchema = z.object({
+  jobId: uuidString,
+  boardId: uuidString,
+  actorUserId: uuidString,
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  styleHint: z.string().trim().max(200).optional()
+});
+
+export const aiDailyStandupRequestedPayloadSchema = z.object({
+  jobId: uuidString,
+  boardId: uuidString,
+  actorUserId: uuidString,
+  periodStart: z.string(),
+  periodEnd: z.string(),
+  styleHint: z.string().trim().max(200).optional()
+});
+
 export const geminiCardSummaryOutputSchema = z.object({
   summary: nonEmptyString.max(4_000),
   highlights: z.array(nonEmptyString.max(400)).max(8),
   risks: z.array(nonEmptyString.max(400)).max(8),
   actionItems: z.array(nonEmptyString.max(400)).max(8)
+});
+
+export const weeklyRecapOutputSchema = z.object({
+  summary: nonEmptyString.max(6_000),
+  highlights: z.array(nonEmptyString.max(400)).max(12),
+  risks: z.array(nonEmptyString.max(400)).max(12),
+  actionItems: z.array(nonEmptyString.max(400)).max(12)
+});
+
+export const dailyStandupOutputSchema = z.object({
+  yesterday: z.array(nonEmptyString.max(400)).max(12),
+  today: z.array(nonEmptyString.max(400)).max(12),
+  blockers: z.array(nonEmptyString.max(400)).max(12)
+});
+
+// Model output is allowed to omit excerpts; worker will ground excerpts to the retrieved context.
+// References are optional to tolerate partial model compliance; worker will fall back to at least
+// one context reference when needed.
+export const geminiAskBoardModelReferenceSchema = z.preprocess(
+  (value) => {
+    if (typeof value === "string") {
+      return { chunkId: value };
+    }
+
+    if (value && typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const chunkId =
+        typeof record.chunkId === "string"
+          ? record.chunkId
+          : typeof record.chunk_id === "string"
+            ? record.chunk_id
+            : null;
+
+      if (chunkId) {
+        return { chunkId };
+      }
+    }
+
+    return value;
+  },
+  z.object({
+    chunkId: uuidString
+  })
+);
+
+export const geminiAskBoardModelOutputSchema = z.object({
+  answer: nonEmptyString.max(6_000),
+  references: z.array(geminiAskBoardModelReferenceSchema).max(20).optional()
 });
 
 export const askBoardReferenceSchema = z.object({
@@ -194,8 +272,64 @@ export const askBoardResultSchema = z
     }
   });
 
+export const weeklyRecapResultSchema = z
+  .object({
+    boardId: uuidString,
+    jobId: uuidString,
+    status: aiJobStatusSchema,
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    recap: weeklyRecapOutputSchema.optional(),
+    failureReason: z.string().max(1_000).optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.recap) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed weekly recap results must include recap payload."
+      });
+    }
+
+    if (value.status === "failed" && !value.failureReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Failed weekly recap results must include failureReason."
+      });
+    }
+  });
+
+export const dailyStandupResultSchema = z
+  .object({
+    boardId: uuidString,
+    jobId: uuidString,
+    status: aiJobStatusSchema,
+    periodStart: z.string(),
+    periodEnd: z.string(),
+    standup: dailyStandupOutputSchema.optional(),
+    failureReason: z.string().max(1_000).optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.standup) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed standup results must include standup payload."
+      });
+    }
+
+    if (value.status === "failed" && !value.failureReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Failed standup results must include failureReason."
+      });
+    }
+  });
+
 export type QueueCardSummaryInput = z.infer<typeof queueCardSummaryInputSchema>;
 export type AskBoardInput = z.infer<typeof askBoardInputSchema>;
+export type QueueWeeklyRecapInput = z.infer<typeof queueWeeklyRecapInputSchema>;
+export type QueueDailyStandupInput = z.infer<typeof queueDailyStandupInputSchema>;
 export type AiEventType = z.infer<typeof aiEventTypeSchema>;
 export type AiJobStatus = z.infer<typeof aiJobStatusSchema>;
 export type AiJobAccepted = z.infer<typeof aiJobAcceptedSchema>;
@@ -209,11 +343,22 @@ export type QueueThreadToCardInput = z.infer<typeof queueThreadToCardInputSchema
 export type AiThreadToCardRequestedPayload = z.infer<
   typeof aiThreadToCardRequestedPayloadSchema
 >;
+export type AiWeeklyRecapRequestedPayload = z.infer<
+  typeof aiWeeklyRecapRequestedPayloadSchema
+>;
+export type AiDailyStandupRequestedPayload = z.infer<
+  typeof aiDailyStandupRequestedPayloadSchema
+>;
 export type GeminiCardSummaryOutput = z.infer<typeof geminiCardSummaryOutputSchema>;
+export type GeminiAskBoardModelOutput = z.infer<typeof geminiAskBoardModelOutputSchema>;
 export type GeminiAskBoardOutput = z.infer<typeof geminiAskBoardOutputSchema>;
 export type GeminiThreadToCardOutput = z.infer<typeof geminiThreadToCardOutputSchema>;
+export type WeeklyRecapOutput = z.infer<typeof weeklyRecapOutputSchema>;
+export type DailyStandupOutput = z.infer<typeof dailyStandupOutputSchema>;
 export type CardSummaryResult = z.infer<typeof cardSummaryResultSchema>;
 export type AskBoardResult = z.infer<typeof askBoardResultSchema>;
+export type WeeklyRecapResult = z.infer<typeof weeklyRecapResultSchema>;
+export type DailyStandupResult = z.infer<typeof dailyStandupResultSchema>;
 export type ThreadToCardDraft = z.infer<typeof threadToCardDraftSchema>;
 export type ThreadToCardResult = z.infer<typeof threadToCardResultSchema>;
 export type ConfirmThreadToCardInput = z.infer<typeof confirmThreadToCardInputSchema>;

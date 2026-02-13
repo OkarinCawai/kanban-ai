@@ -3,7 +3,7 @@ import { config, updateConfig } from "/src/api/config.js";
 import { callApi } from "/src/api/client.js";
 import { nowIso, formatTimestamp, formatElapsed, toDateTimeLocalValue, fromDateTimeLocalValue, parseCsv } from "/src/utils/formatting.js";
 import { sortedCardsForList, appendPosition, moveCardToList } from "/src/features/board/logic.js";
-import { pollCardSummary, pollAskBoardResult, STATUS_TERMINAL, STATUS_ACTIVE, toUiStatus } from "/src/features/ai/polling.js";
+import { pollCardSummary, pollCardCover, pollAskBoardResult, STATUS_TERMINAL, STATUS_ACTIVE, toUiStatus } from "/src/features/ai/polling.js";
 import { persistSupabaseConfig as _persistSupabaseConfig, hydrateSupabaseConfig as _hydrateSupabaseConfig, clearSupabaseAuthStorage, getSupabaseClient as _getSupabaseClient } from "/src/api/auth.js";
 
 const dom = {
@@ -764,6 +764,32 @@ const render = () => {
       cardNode.querySelector(".card-meta").textContent = `v${card.version} * pos ${Math.round(card.position)}`;
       renderCardBadges(card, cardNode.querySelector(".card-badges"));
 
+      const coverStatus = state.cardCoverStatusByCardId[card.id] ?? "idle";
+      const coverUpdatedAt = state.cardCoverUpdatedAtByCardId[card.id];
+      const coverUrl = state.cardCoverUrlsByCardId[card.id];
+
+      const coverShellEl = cardNode.querySelector(".card-cover-shell");
+      const coverImgEl = cardNode.querySelector(".card-cover-img");
+      if (coverShellEl && coverImgEl) {
+        coverShellEl.classList.toggle("has-cover", Boolean(coverUrl));
+        coverShellEl.classList.toggle("is-empty", !coverUrl);
+        if (coverUrl) {
+          if (coverImgEl.getAttribute("src") !== coverUrl) {
+            coverImgEl.setAttribute("src", coverUrl);
+          }
+        } else {
+          coverImgEl.removeAttribute("src");
+        }
+      }
+
+      const coverUpdatedAtEl = cardNode.querySelector(".card-cover-updated-at");
+      coverUpdatedAtEl.textContent = coverUpdatedAt
+        ? `updated ${formatTimestamp(coverUpdatedAt)}`
+        : "no cover yet";
+
+      const coverStatusEl = cardNode.querySelector(".card-cover-status");
+      applyStatusChip(coverStatusEl, coverStatus, "cover");
+
       const movedAt = state.movedCardAtByCardId[card.id];
       if (movedAt && Date.now() - movedAt < 2200) {
         cardNode.classList.add("card-flash");
@@ -793,15 +819,18 @@ const render = () => {
       applyStatusChip(summaryStatusEl, summaryStatus, "summary");
 
       const summarizeButton = cardNode.querySelector(".summarize-card-btn");
+      const coverButton = cardNode.querySelector(".cover-card-btn");
       const movePrevButton = cardNode.querySelector(".move-prev-btn");
       const moveNextButton = cardNode.querySelector(".move-next-btn");
       const editButton = cardNode.querySelector(".edit-card-btn");
 
+      coverButton.disabled = config.role === "viewer";
       movePrevButton.disabled = listIndex === 0;
       moveNextButton.disabled = listIndex >= state.lists.length - 1;
       movePrevButton.setAttribute("aria-label", `Move ${card.title} to previous list`);
       moveNextButton.setAttribute("aria-label", `Move ${card.title} to next list`);
       summarizeButton.setAttribute("aria-label", `Summarize card ${card.title}`);
+      coverButton.setAttribute("aria-label", `Generate cover for card ${card.title}`);
       editButton.setAttribute("aria-label", `Edit details for card ${card.title}`);
 
       const selectCard = () => {
@@ -858,6 +887,56 @@ const render = () => {
         }
       };
 
+      const runCover = async () => {
+        state.cardCoverStatusByCardId[card.id] = "queued";
+        announce(`Cover queued for ${card.title}.`);
+        render();
+
+        try {
+          const queued = await callApi(
+            `/cards/${card.id}/cover`,
+            "POST",
+            {},
+            "card-cover-enqueue"
+          );
+          log("Queued card cover", { cardId: card.id, jobId: queued.jobId });
+
+          const status = await pollCardCover(card.id, 12, 1500, (nextStatus) => {
+            state.cardCoverStatusByCardId[card.id] = toUiStatus(nextStatus);
+            render();
+          });
+
+          if (status?.status === "completed") {
+            state.cardCoverStatusByCardId[card.id] = "completed";
+            state.cardCoverUpdatedAtByCardId[card.id] = nowIso();
+            if (typeof status.imageUrl === "string" && status.imageUrl) {
+              state.cardCoverUrlsByCardId[card.id] = status.imageUrl;
+            }
+            log("Card cover completed", { cardId: card.id });
+            announce(`Cover completed for ${card.title}.`);
+            render();
+            return;
+          }
+
+          if (status?.status === "failed") {
+            state.cardCoverStatusByCardId[card.id] = "failed";
+            state.cardCoverUpdatedAtByCardId[card.id] = nowIso();
+            announce(`Cover failed for ${card.title}.`);
+          }
+          log("Card cover still pending", {
+            cardId: card.id,
+            status: status?.status ?? "queued"
+          });
+        } catch (error) {
+          state.cardCoverStatusByCardId[card.id] = "failed";
+          state.cardCoverUpdatedAtByCardId[card.id] = nowIso();
+          log("Card cover failed", { cardId: card.id, message: error.message });
+          announce(`Cover failed for ${card.title}.`);
+        } finally {
+          render();
+        }
+      };
+
       const moveByOffset = async (offset) => {
         const targetIndex = listIndex + offset;
         if (targetIndex < 0 || targetIndex >= state.lists.length) {
@@ -877,6 +956,9 @@ const render = () => {
 
       summarizeButton.addEventListener("click", () => {
         void runSummary();
+      });
+      coverButton.addEventListener("click", () => {
+        void runCover();
       });
       editButton.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -909,6 +991,14 @@ const render = () => {
         if (event.key === "s" || event.key === "S") {
           event.preventDefault();
           void runSummary();
+          return;
+        }
+
+        if (event.key === "c" || event.key === "C") {
+          event.preventDefault();
+          if (!coverButton.disabled) {
+            void runCover();
+          }
           return;
         }
 
@@ -959,6 +1049,9 @@ dom.createBoardBtn.addEventListener("click", async () => {
     state.cardSummaries = {};
     state.cardSummaryStatusByCardId = {};
     state.cardSummaryUpdatedAtByCardId = {};
+    state.cardCoverUrlsByCardId = {};
+    state.cardCoverStatusByCardId = {};
+    state.cardCoverUpdatedAtByCardId = {};
     state.askJobs = [];
     state.activeAskJobId = null;
     state.askBoardStatus = "idle";

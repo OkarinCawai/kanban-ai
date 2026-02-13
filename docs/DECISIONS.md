@@ -138,6 +138,34 @@ Newest decision with same topic supersedes older entries.
 - Decision: Require `editor` or `admin` membership for `thread_card_extractions` inserts and enforce the same rule in core use-cases before enqueue.
 - Consequences: Viewers can still read thread extraction status but cannot enqueue new extractions, reducing abuse/cost risk and aligning with write-permission boundaries.
 
+## D-019: Covers use Storage + signed URLs, with RLS-scoped metadata
+- Date: 2026-02-12
+- Status: `accepted`
+- Context: Covers must be deterministic, accessible to web/Discord, and not leak private assets across org boundaries.
+- Decision: Persist cover job state/metadata in an RLS-protected `public.card_covers` table, upload rendered cover assets to Supabase Storage using a service-role client in the worker, and return time-limited signed URLs from the API for client display.
+- Consequences: Requires Storage bucket provisioning and `SUPABASE_SERVICE_ROLE_KEY` for worker/API cover operations; signed URLs must be refreshed when expired.
+
+## D-020: Ask-board worker updates status on failure and tolerates embedding errors
+- Date: 2026-02-12
+- Status: `accepted`
+- Context: Ask-board jobs must be observable (`failed` state) and robust when embedding generation fails (lexical fallback), and outbox replay must not re-run completed AI work.
+- Decision: Worker updates `public.ai_ask_requests.status` to `processing`/`completed`/`failed` during execution; embedding generation failures are logged and skipped so lexical retrieval can proceed; completed ask-board jobs are treated as idempotent on outbox replay.
+- Consequences: Users can observe failed states; semantic retrieval may temporarily degrade to lexical when embeddings cannot be generated; replay safety improves without duplicating expensive Gemini calls.
+
+## D-021: Viewers may enqueue ask-board outbox events only for themselves
+- Date: 2026-02-12
+- Status: `accepted`
+- Context: Ask-board is a read-oriented async operation that should be available to viewers, but it still requires an outbox insert inside the enqueue transaction; the original outbox insert policy only allowed editor/admin writes, causing `POST /ai/ask-board` to fail under viewer contexts.
+- Decision: Update `outbox_events_insert_policy` to allow `viewer` inserts only for `ai.ask-board.requested` when the payload matches the inserting user (`actorUserId = current_user_id()`) and the event metadata is consistent (`jobId=id`, `boardId=board_id`, board belongs to org).
+- Consequences: Viewers can queue ask-board jobs without loosening outbox permissions for other event types; policy remains a security boundary for async side effects.
+
+## D-022: Outbox processing uses per-row savepoints; ask-board commits document sync before RLS retrieval
+- Date: 2026-02-12
+- Status: `accepted`
+- Context: A single SQL error inside worker outbox processing can abort the batch transaction and prevent updating retry metadata. Additionally, ask-board was syncing `documents`/`document_chunks` in the outbox transaction but performing RLS-scoped retrieval on a separate DB connection, which cannot see uncommitted chunk inserts (leading to empty-context failures on new boards).
+- Decision: Wrap each outbox row execution in a Postgres savepoint and roll back to it on errors before updating retry metadata and failed job state. For ask-board, perform board document sync in a separate committed transaction before running the RLS-scoped retrieval query.
+- Consequences: Worker becomes resilient to per-row SQL failures (no batch-level abort); brand new boards can answer immediately after sync. Slightly higher DB transaction overhead per ask-board job.
+
 ## Template for new decisions
 
 Use this block for future entries:

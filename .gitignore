@@ -14,6 +14,7 @@ out/
 coverage/
 .turbo/
 .cache/
+.npm-cache/
 *.tsbuildinfo
 .eslintcache
 

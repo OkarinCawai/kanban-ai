@@ -54,7 +54,23 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findCardCoverByCardId(_cardId: string): Promise<null> {
+    return null;
+  }
+
   async findAskBoardResultByJobId(_jobId: string): Promise<null> {
+    return null;
+  }
+
+  async findWeeklyRecapByBoardId(_boardId: string): Promise<null> {
+    return null;
+  }
+
+  async findDailyStandupByBoardId(_boardId: string): Promise<null> {
+    return null;
+  }
+
+  async findBoardStuckReportByBoardId(_boardId: string): Promise<null> {
     return null;
   }
 
@@ -217,6 +233,18 @@ class FakeRepository implements KanbanRepository {
         // Not used in Kanban use-case tests.
       },
       upsertAskBoardRequest: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertCardCover: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertWeeklyRecap: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertDailyStandup: async () => {
+        // Not used in Kanban use-case tests.
+      },
+      upsertBoardStuckReport: async () => {
         // Not used in Kanban use-case tests.
       },
       upsertThreadCardExtraction: async () => {

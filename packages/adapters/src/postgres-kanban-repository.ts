@@ -1,15 +1,23 @@
 import {
   askBoardResultSchema,
+  boardStuckReportResultSchema,
   cardChecklistItemSchema,
+  cardCoverResultSchema,
   cardLabelSchema,
   cardSummaryResultSchema,
+  dailyStandupResultSchema,
   threadToCardResultSchema,
+  weeklyRecapResultSchema,
   type AskBoardResult,
   type Board,
+  type BoardStuckReportResult,
   type Card,
+  type CardCoverResult,
   type CardSummaryResult,
+  type DailyStandupResult,
   type KanbanList,
-  type ThreadToCardResult
+  type ThreadToCardResult,
+  type WeeklyRecapResult
 } from "@kanban/contracts";
 import {
   ConflictError,
@@ -71,6 +79,18 @@ type DbCardSummary = {
   updated_at: string | Date;
 };
 
+type DbCardCover = {
+  card_id: string;
+  job_id: string;
+  status: string;
+  spec_json: unknown;
+  bucket: string | null;
+  object_path: string | null;
+  content_type: string | null;
+  failure_reason: string | null;
+  updated_at: string | Date;
+};
+
 type DbAskBoardResult = {
   id: string;
   board_id: string;
@@ -78,6 +98,37 @@ type DbAskBoardResult = {
   top_k: number;
   status: string;
   answer_json: unknown;
+  updated_at: string | Date;
+};
+
+type DbWeeklyRecap = {
+  board_id: string;
+  job_id: string;
+  status: string;
+  period_start: string | Date;
+  period_end: string | Date;
+  recap_json: unknown;
+  failure_reason: string | null;
+  updated_at: string | Date;
+};
+
+type DbDailyStandup = {
+  board_id: string;
+  job_id: string;
+  status: string;
+  period_start: string | Date;
+  period_end: string | Date;
+  standup_json: unknown;
+  failure_reason: string | null;
+  updated_at: string | Date;
+};
+
+type DbBoardStuckReport = {
+  board_id: string;
+  job_id: string;
+  status: string;
+  report_json: unknown;
+  failure_reason: string | null;
   updated_at: string | Date;
 };
 
@@ -199,6 +250,19 @@ const mapCardSummary = (row: DbCardSummary): CardSummaryResult =>
     updatedAt: toIso(row.updated_at)
   });
 
+const mapCardCover = (row: DbCardCover): CardCoverResult =>
+  cardCoverResultSchema.parse({
+    cardId: row.card_id,
+    jobId: row.job_id,
+    status: row.status,
+    spec: row.spec_json ?? undefined,
+    bucket: row.bucket ?? undefined,
+    objectPath: row.object_path ?? undefined,
+    contentType: row.content_type ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
 const mapAskBoardResult = (row: DbAskBoardResult): AskBoardResult =>
   askBoardResultSchema.parse({
     jobId: row.id,
@@ -207,6 +271,40 @@ const mapAskBoardResult = (row: DbAskBoardResult): AskBoardResult =>
     topK: row.top_k,
     status: row.status,
     answer: row.answer_json ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
+const mapWeeklyRecap = (row: DbWeeklyRecap): WeeklyRecapResult =>
+  weeklyRecapResultSchema.parse({
+    boardId: row.board_id,
+    jobId: row.job_id,
+    status: row.status,
+    periodStart: toIso(row.period_start),
+    periodEnd: toIso(row.period_end),
+    recap: row.recap_json ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
+const mapDailyStandup = (row: DbDailyStandup): DailyStandupResult =>
+  dailyStandupResultSchema.parse({
+    boardId: row.board_id,
+    jobId: row.job_id,
+    status: row.status,
+    periodStart: toIso(row.period_start),
+    periodEnd: toIso(row.period_end),
+    standup: row.standup_json ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
+const mapBoardStuckReport = (row: DbBoardStuckReport): BoardStuckReportResult =>
+  boardStuckReportResultSchema.parse({
+    boardId: row.board_id,
+    jobId: row.job_id,
+    status: row.status,
+    report: row.report_json ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
     updatedAt: toIso(row.updated_at)
   });
 
@@ -304,6 +402,31 @@ export class PostgresKanbanRepository implements KanbanRepository {
     });
   }
 
+  async findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbCardCover>(
+        `
+          select
+            card_id,
+            job_id,
+            status,
+            spec_json,
+            bucket,
+            object_path,
+            content_type,
+            failure_reason,
+            updated_at
+          from public.card_covers
+          where card_id = $1::uuid
+          limit 1
+        `,
+        [cardId]
+      );
+
+      return result.rows[0] ? mapCardCover(result.rows[0]) : null;
+    });
+  }
+
   async findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null> {
     return this.withContextTransaction(async (client) => {
       const result = await client.query<DbAskBoardResult>(
@@ -317,6 +440,76 @@ export class PostgresKanbanRepository implements KanbanRepository {
       );
 
       return result.rows[0] ? mapAskBoardResult(result.rows[0]) : null;
+    });
+  }
+
+  async findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbWeeklyRecap>(
+        `
+          select
+            board_id,
+            job_id,
+            status,
+            period_start,
+            period_end,
+            recap_json,
+            failure_reason,
+            updated_at
+          from public.board_weekly_recaps
+          where board_id = $1::uuid
+          limit 1
+        `,
+        [boardId]
+      );
+
+      return result.rows[0] ? mapWeeklyRecap(result.rows[0]) : null;
+    });
+  }
+
+  async findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbDailyStandup>(
+        `
+          select
+            board_id,
+            job_id,
+            status,
+            period_start,
+            period_end,
+            standup_json,
+            failure_reason,
+            updated_at
+          from public.board_daily_standups
+          where board_id = $1::uuid
+          limit 1
+        `,
+        [boardId]
+      );
+
+      return result.rows[0] ? mapDailyStandup(result.rows[0]) : null;
+    });
+  }
+
+  async findBoardStuckReportByBoardId(boardId: string): Promise<BoardStuckReportResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbBoardStuckReport>(
+        `
+          select
+            board_id,
+            job_id,
+            status,
+            report_json,
+            failure_reason,
+            updated_at
+          from public.board_stuck_reports
+          where board_id = $1::uuid
+          limit 1
+        `,
+        [boardId]
+      );
+
+      return result.rows[0] ? mapBoardStuckReport(result.rows[0]) : null;
     });
   }
 
@@ -636,6 +829,230 @@ export class PostgresKanbanRepository implements KanbanRepository {
               input.topK,
               input.status,
               input.answerJson ? JSON.stringify(input.answerJson) : null,
+              input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertCardCover: async (input) => {
+          await client.query(
+            `
+              insert into public.card_covers (
+                card_id,
+                org_id,
+                board_id,
+                job_id,
+                status,
+                spec_json,
+                bucket,
+                object_path,
+                content_type,
+                failure_reason,
+                source_event_id,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                $5,
+                $6::jsonb,
+                $7,
+                $8,
+                $9,
+                $10,
+                $11::uuid,
+                now(),
+                $12::timestamptz
+              )
+              on conflict (card_id) do update
+              set
+                board_id = excluded.board_id,
+                job_id = excluded.job_id,
+                status = excluded.status,
+                spec_json = excluded.spec_json,
+                bucket = excluded.bucket,
+                object_path = excluded.object_path,
+                content_type = excluded.content_type,
+                failure_reason = excluded.failure_reason,
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.cardId,
+              input.orgId,
+              input.boardId,
+              input.jobId,
+              input.status,
+              input.specJson ? JSON.stringify(input.specJson) : null,
+              input.bucket ?? null,
+              input.objectPath ?? null,
+              input.contentType ?? null,
+              input.failureReason ?? null,
+              input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertWeeklyRecap: async (input) => {
+          await client.query(
+            `
+              insert into public.board_weekly_recaps (
+                board_id,
+                org_id,
+                job_id,
+                status,
+                period_start,
+                period_end,
+                recap_json,
+                failure_reason,
+                source_event_id,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4,
+                $5::timestamptz,
+                $6::timestamptz,
+                $7::jsonb,
+                $8,
+                $9::uuid,
+                now(),
+                $10::timestamptz
+              )
+              on conflict (board_id) do update
+              set
+                job_id = excluded.job_id,
+                status = excluded.status,
+                period_start = excluded.period_start,
+                period_end = excluded.period_end,
+                recap_json = excluded.recap_json,
+                failure_reason = excluded.failure_reason,
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.boardId,
+              input.orgId,
+              input.jobId,
+              input.status,
+              input.periodStart,
+              input.periodEnd,
+              input.recapJson ? JSON.stringify(input.recapJson) : null,
+              input.failureReason ?? null,
+              input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertDailyStandup: async (input) => {
+          await client.query(
+            `
+              insert into public.board_daily_standups (
+                board_id,
+                org_id,
+                job_id,
+                status,
+                period_start,
+                period_end,
+                standup_json,
+                failure_reason,
+                source_event_id,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4,
+                $5::timestamptz,
+                $6::timestamptz,
+                $7::jsonb,
+                $8,
+                $9::uuid,
+                now(),
+                $10::timestamptz
+              )
+              on conflict (board_id) do update
+              set
+                job_id = excluded.job_id,
+                status = excluded.status,
+                period_start = excluded.period_start,
+                period_end = excluded.period_end,
+                standup_json = excluded.standup_json,
+                failure_reason = excluded.failure_reason,
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.boardId,
+              input.orgId,
+              input.jobId,
+              input.status,
+              input.periodStart,
+              input.periodEnd,
+              input.standupJson ? JSON.stringify(input.standupJson) : null,
+              input.failureReason ?? null,
+              input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertBoardStuckReport: async (input) => {
+          await client.query(
+            `
+              insert into public.board_stuck_reports (
+                board_id,
+                org_id,
+                job_id,
+                status,
+                threshold_days,
+                as_of,
+                report_json,
+                failure_reason,
+                source_event_id,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4,
+                $5,
+                $6::timestamptz,
+                $7::jsonb,
+                $8,
+                $9::uuid,
+                now(),
+                $10::timestamptz
+              )
+              on conflict (board_id) do update
+              set
+                job_id = excluded.job_id,
+                status = excluded.status,
+                threshold_days = excluded.threshold_days,
+                as_of = excluded.as_of,
+                report_json = excluded.report_json,
+                failure_reason = excluded.failure_reason,
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.boardId,
+              input.orgId,
+              input.jobId,
+              input.status,
+              input.thresholdDays,
+              input.asOf,
+              input.reportJson ? JSON.stringify(input.reportJson) : null,
+              input.failureReason ?? null,
               input.sourceEventId ?? null,
               input.updatedAt
             ]

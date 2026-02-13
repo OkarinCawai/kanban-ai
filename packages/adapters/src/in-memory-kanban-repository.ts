@@ -1,10 +1,14 @@
 import type {
   AskBoardResult,
   Board,
+  BoardStuckReportResult,
   Card,
+  CardCoverResult,
   CardSummaryResult,
+  DailyStandupResult,
   KanbanList,
   OutboxEvent,
+  WeeklyRecapResult,
   ThreadToCardResult
 } from "@kanban/contracts";
 import {
@@ -23,7 +27,11 @@ export class InMemoryKanbanRepository implements KanbanRepository {
   private lists = new Map<string, KanbanList>();
   private cards = new Map<string, Card>();
   private cardSummaries = new Map<string, CardSummaryResult>();
+  private cardCovers = new Map<string, CardCoverResult>();
   private askBoardResults = new Map<string, AskBoardResult>();
+  private weeklyRecaps = new Map<string, WeeklyRecapResult>();
+  private dailyStandups = new Map<string, DailyStandupResult>();
+  private stuckReports = new Map<string, BoardStuckReportResult>();
   private threadToCardResults = new Map<string, ThreadToCardResult>();
   private outboxEvents: OutboxEvent[] = [];
 
@@ -47,8 +55,24 @@ export class InMemoryKanbanRepository implements KanbanRepository {
     this.cardSummaries.set(summary.cardId, clone(summary));
   }
 
+  seedCardCover(cover: CardCoverResult): void {
+    this.cardCovers.set(cover.cardId, clone(cover));
+  }
+
   seedAskBoardResult(result: AskBoardResult): void {
     this.askBoardResults.set(result.jobId, clone(result));
+  }
+
+  seedWeeklyRecap(result: WeeklyRecapResult): void {
+    this.weeklyRecaps.set(result.boardId, clone(result));
+  }
+
+  seedDailyStandup(result: DailyStandupResult): void {
+    this.dailyStandups.set(result.boardId, clone(result));
+  }
+
+  seedStuckReport(result: BoardStuckReportResult): void {
+    this.stuckReports.set(result.boardId, clone(result));
   }
 
   seedThreadToCardResult(result: ThreadToCardResult): void {
@@ -75,9 +99,29 @@ export class InMemoryKanbanRepository implements KanbanRepository {
     return summary ? clone(summary) : null;
   }
 
+  async findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null> {
+    const cover = this.cardCovers.get(cardId);
+    return cover ? clone(cover) : null;
+  }
+
   async findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null> {
     const result = this.askBoardResults.get(jobId);
     return result ? clone(result) : null;
+  }
+
+  async findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null> {
+    const recap = this.weeklyRecaps.get(boardId);
+    return recap ? clone(recap) : null;
+  }
+
+  async findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null> {
+    const standup = this.dailyStandups.get(boardId);
+    return standup ? clone(standup) : null;
+  }
+
+  async findBoardStuckReportByBoardId(boardId: string): Promise<BoardStuckReportResult | null> {
+    const report = this.stuckReports.get(boardId);
+    return report ? clone(report) : null;
   }
 
   async findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null> {
@@ -107,7 +151,11 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       lists: new Map(this.lists),
       cards: new Map(this.cards),
       cardSummaries: new Map(this.cardSummaries),
+      cardCovers: new Map(this.cardCovers),
       askBoardResults: new Map(this.askBoardResults),
+      weeklyRecaps: new Map(this.weeklyRecaps),
+      dailyStandups: new Map(this.dailyStandups),
+      stuckReports: new Map(this.stuckReports),
       threadToCardResults: new Map(this.threadToCardResults),
       outboxEvents: [...this.outboxEvents]
     };
@@ -271,6 +319,77 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           })
         );
       },
+      upsertCardCover: async (input) => {
+        const existing = this.cardCovers.get(input.cardId);
+        const next: CardCoverResult = {
+          cardId: input.cardId,
+          jobId: input.jobId,
+          status: input.status,
+          spec: input.specJson as CardCoverResult["spec"] | undefined,
+          bucket: input.bucket,
+          objectPath: input.objectPath,
+          contentType: input.contentType,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        };
+
+        this.cardCovers.set(
+          input.cardId,
+          clone(existing ? { ...existing, ...next } : next)
+        );
+      },
+      upsertWeeklyRecap: async (input) => {
+        const existing = this.weeklyRecaps.get(input.boardId);
+        const next: WeeklyRecapResult = {
+          boardId: input.boardId,
+          jobId: input.jobId,
+          status: input.status,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          recap: input.recapJson as WeeklyRecapResult["recap"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        };
+
+        this.weeklyRecaps.set(
+          input.boardId,
+          clone(existing ? { ...existing, ...next } : next)
+        );
+      },
+      upsertDailyStandup: async (input) => {
+        const existing = this.dailyStandups.get(input.boardId);
+        const next: DailyStandupResult = {
+          boardId: input.boardId,
+          jobId: input.jobId,
+          status: input.status,
+          periodStart: input.periodStart,
+          periodEnd: input.periodEnd,
+          standup: input.standupJson as DailyStandupResult["standup"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        };
+
+        this.dailyStandups.set(
+          input.boardId,
+          clone(existing ? { ...existing, ...next } : next)
+        );
+      },
+      upsertBoardStuckReport: async (input) => {
+        const existing = this.stuckReports.get(input.boardId);
+        const next: BoardStuckReportResult = {
+          boardId: input.boardId,
+          jobId: input.jobId,
+          status: input.status,
+          report: input.reportJson as BoardStuckReportResult["report"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        };
+
+        this.stuckReports.set(
+          input.boardId,
+          clone(existing ? { ...existing, ...next } : next)
+        );
+      },
       upsertThreadCardExtraction: async (input) => {
         const existing = this.threadToCardResults.get(input.id);
         const next: ThreadToCardResult = {
@@ -309,7 +428,11 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       this.lists = snapshot.lists;
       this.cards = snapshot.cards;
       this.cardSummaries = snapshot.cardSummaries;
+      this.cardCovers = snapshot.cardCovers;
       this.askBoardResults = snapshot.askBoardResults;
+      this.weeklyRecaps = snapshot.weeklyRecaps;
+      this.dailyStandups = snapshot.dailyStandups;
+      this.stuckReports = snapshot.stuckReports;
       this.threadToCardResults = snapshot.threadToCardResults;
       this.outboxEvents = snapshot.outboxEvents;
       throw error;

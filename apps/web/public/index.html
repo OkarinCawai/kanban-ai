@@ -133,8 +133,8 @@
             <p class="meta">Drag cards across lists; moves apply optimistic feedback.</p>
           </div>
           <p class="board-help">
-            Keyboard on focused card: <kbd>S</kbd> summarize, <kbd>[</kbd> move left, <kbd>]</kbd> move right,
-            <kbd>E</kbd> open details.
+            Keyboard on focused card: <kbd>S</kbd> summarize, <kbd>C</kbd> cover, <kbd>[</kbd> move left,
+            <kbd>]</kbd> move right, <kbd>E</kbd> open details.
           </p>
           <section class="board" id="boardColumns" role="list" aria-label="Kanban board columns"></section>
         </article>
@@ -275,17 +275,27 @@
 
   <template id="cardTemplate">
     <div class="card" draggable="true">
+      <div class="card-cover-shell is-empty" aria-hidden="true">
+        <img class="card-cover-img" alt="" loading="lazy" />
+      </div>
       <div class="card-head">
         <div class="card-title"></div>
         <div class="card-meta"></div>
       </div>
       <div class="card-badges" aria-label="Card metadata badges"></div>
-      <div class="card-status-row">
-        <span class="status-chip card-summary-status status-idle">summary idle</span>
-        <span class="card-summary-updated-at">no summary yet</span>
+      <div class="card-status-stack" aria-label="Card async job statuses">
+        <div class="card-status-row">
+          <span class="status-chip card-cover-status status-idle">cover idle</span>
+          <span class="card-cover-updated-at">no cover yet</span>
+        </div>
+        <div class="card-status-row">
+          <span class="status-chip card-summary-status status-idle">summary idle</span>
+          <span class="card-summary-updated-at">no summary yet</span>
+        </div>
       </div>
       <div class="card-actions">
         <button class="edit-card-btn" type="button">Details</button>
+        <button class="cover-card-btn" type="button">Cover</button>
         <button class="summarize-card-btn" type="button">Summarize</button>
         <button class="move-prev-btn" type="button">Move Left</button>
         <button class="move-next-btn" type="button">Move Right</button>

@@ -84,3 +84,63 @@ Changes:
 Operational notes:
 - Included in root migration chain via `npm run db:migrate:m5`.
 - Supports M4 thread extraction queueing (`ai.thread-to-card.requested`) and duplicate-safe confirm flow (`created_card_id`).
+
+## 0006_m5_deterministic_covers.sql (2026-02-12)
+
+Path: `infra/db/migrations/0006_m5_deterministic_covers.sql`
+
+Changes:
+- Adds `public.card_covers` for deterministic card cover lifecycle state + render metadata:
+  - job fields: `job_id`, `status`, `spec_json`, `failure_reason`, `source_event_id`
+  - storage metadata: `bucket`, `object_path`, `content_type`
+- Enables + forces RLS and adds policies:
+  - `card_covers_select_policy` (viewer/editor/admin)
+  - `card_covers_write_policy` (editor/admin only; card/org/board consistency enforced)
+- Adds indexes for org/board scoping and status polling.
+
+Operational notes:
+- Included in root migration chain via `npm run db:migrate:m6`.
+- Worker uploads rendered cover assets to Supabase Storage; ensure the target bucket exists (default `covers`).
+
+## 0007_m6_hygiene_digests.sql (2026-02-12)
+
+Path: `infra/db/migrations/0007_m6_hygiene_digests.sql`
+
+Changes:
+- Adds board-scoped digest/hygiene lifecycle tables:
+  - `board_weekly_recaps` (async weekly recap job status + JSON output)
+  - `board_daily_standups` (async daily standup job status + JSON output)
+  - `board_stuck_reports` (async stuck detection status + JSON report output)
+- Enables + forces RLS and adds policies:
+  - `board_weekly_recaps_select_policy` (viewer/editor/admin)
+  - `board_weekly_recaps_write_policy` (editor/admin only; board/org consistency enforced)
+  - `board_daily_standups_select_policy` (viewer/editor/admin)
+  - `board_daily_standups_write_policy` (editor/admin only; board/org consistency enforced)
+  - `board_stuck_reports_select_policy` (viewer/editor/admin)
+  - `board_stuck_reports_write_policy` (editor/admin only; board/org consistency enforced)
+- Adds indexes for org/board scoping and status polling.
+
+Operational notes:
+- Included in root migration chain via `npm run db:migrate:m7`.
+- Worker processes:
+  - `hygiene.detect-stuck.requested`
+  - `ai.weekly-recap.requested`
+- `ai.daily-standup.requested`
+- `npm run verify:live` includes live probes for all three flows (queue + completion).
+
+## 0008_m9_outbox_ai_viewer_enqueue.sql (2026-02-12)
+
+Path: `infra/db/migrations/0008_m9_outbox_ai_viewer_enqueue.sql`
+
+Changes:
+- Updates `public.outbox_events` insert policy (`outbox_events_insert_policy`) to allow `viewer` role to enqueue only:
+  - `ai.ask-board.requested`
+- Enforces ownership and shape checks for viewer inserts:
+  - `payload.actorUserId = current_user_id()`
+  - `payload.jobId = outbox_events.id`
+  - `payload.boardId = outbox_events.board_id`
+  - board belongs to the same org (`boards.org_id = outbox_events.org_id`)
+
+Operational notes:
+- Required for M9 automated ask-board evaluation where a viewer user queues ask-board jobs.
+- Keeps outbox inserts locked down for all other event types (still editor/admin only).

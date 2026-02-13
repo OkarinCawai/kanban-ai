@@ -57,6 +57,9 @@ export interface AppState {
   cardSummaries: Record<string, unknown>;
   cardSummaryStatusByCardId: Record<string, UiStatus>;
   cardSummaryUpdatedAtByCardId: Record<string, string>;
+  cardCoverUrlsByCardId: Record<string, string>;
+  cardCoverStatusByCardId: Record<string, UiStatus>;
+  cardCoverUpdatedAtByCardId: Record<string, string>;
   askBoardStatus: UiStatus;
   askJobs: AskJobState[];
   activeAskJobId: string | null;
@@ -79,6 +82,9 @@ export const state: AppState = {
   cardSummaries: {},
   cardSummaryStatusByCardId: {},
   cardSummaryUpdatedAtByCardId: {},
+  cardCoverUrlsByCardId: {},
+  cardCoverStatusByCardId: {},
+  cardCoverUpdatedAtByCardId: {},
   askBoardStatus: "idle",
   askJobs: [],
   activeAskJobId: null,

@@ -3,8 +3,12 @@ import {
   discordAskBoardInputSchema,
   discordAskBoardStatusInputSchema,
   discordBoardSnapshotSchema,
+  discordCardCoverInputSchema,
+  discordCardCoverStatusInputSchema,
+  discordCardCoverStatusSchema,
   discordCardSummaryStatusInputSchema,
   discordCardSummaryStatusSchema,
+  discordCoverJobAcceptedSchema,
   discordAskBoardStatusSchema,
   discordCardResponseSchema,
   discordCardEditInputSchema,
@@ -219,6 +223,33 @@ export class DiscordCommandService {
     const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
     const status = await this.aiService.getCardSummary(resolved.context, parsed.data.cardId);
     return discordCardSummaryStatusSchema.parse(status);
+  }
+
+  async cardCover(discordUserId: string, input: unknown) {
+    const parsed = discordCardCoverInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const accepted = await this.aiService.queueCardCover(
+      resolved.context,
+      parsed.data.cardId,
+      { styleHint: parsed.data.styleHint }
+    );
+
+    return discordCoverJobAcceptedSchema.parse(accepted);
+  }
+
+  async cardCoverStatus(discordUserId: string, input: unknown) {
+    const parsed = discordCardCoverStatusInputSchema.safeParse(input);
+    if (!parsed.success) {
+      throw new BadRequestException(parsed.error.message);
+    }
+
+    const resolved = await this.resolveContext(discordUserId, parsed.data.guildId, parsed.data.channelId);
+    const status = await this.aiService.getCardCover(resolved.context, parsed.data.cardId);
+    return discordCardCoverStatusSchema.parse(status);
   }
 
   async askBoard(discordUserId: string, input: unknown) {

@@ -7,6 +7,10 @@ import {
   threadToCardResultSchema
 } from "./ai.js";
 import {
+  cardCoverResultSchema as cardCoverResultSchemaFromCovers,
+  coverJobAcceptedSchema as coverJobAcceptedSchemaFromCovers
+} from "./covers.js";
+import {
   boardSchema,
   cardLabelColorSchema,
   cardSchema,
@@ -100,6 +104,13 @@ export const discordCardSummarizeInputSchema = z.object({
   reason: z.string().trim().max(500).optional()
 });
 
+export const discordCardCoverInputSchema = z.object({
+  guildId: nonEmptyString,
+  channelId: nonEmptyString,
+  cardId: uuidString,
+  styleHint: z.string().trim().max(200).optional()
+});
+
 export const discordAskBoardInputSchema = z.object({
   guildId: nonEmptyString,
   channelId: nonEmptyString,
@@ -108,6 +119,12 @@ export const discordAskBoardInputSchema = z.object({
 });
 
 export const discordCardSummaryStatusInputSchema = z.object({
+  guildId: nonEmptyString,
+  channelId: nonEmptyString,
+  cardId: uuidString
+});
+
+export const discordCardCoverStatusInputSchema = z.object({
   guildId: nonEmptyString,
   channelId: nonEmptyString,
   cardId: uuidString
@@ -147,7 +164,9 @@ export const discordCardResponseSchema = z.object({
 });
 
 export const discordAiJobAcceptedSchema = aiJobAcceptedSchema;
+export const discordCoverJobAcceptedSchema = coverJobAcceptedSchemaFromCovers;
 export const discordCardSummaryStatusSchema = cardSummaryResultSchema;
+export const discordCardCoverStatusSchema = cardCoverResultSchemaFromCovers;
 export const discordAskBoardStatusSchema = askBoardResultSchema;
 export const discordThreadToCardStatusSchema = threadToCardResultSchema;
 export const discordThreadToCardConfirmSchema = z.object({
@@ -163,8 +182,10 @@ export type DiscordCardMoveInput = z.infer<typeof discordCardMoveInputSchema>;
 export type DiscordCardEditInput = z.infer<typeof discordCardEditInputSchema>;
 export type DiscordCardResponse = z.infer<typeof discordCardResponseSchema>;
 export type DiscordCardSummarizeInput = z.infer<typeof discordCardSummarizeInputSchema>;
+export type DiscordCardCoverInput = z.infer<typeof discordCardCoverInputSchema>;
 export type DiscordAskBoardInput = z.infer<typeof discordAskBoardInputSchema>;
 export type DiscordCardSummaryStatusInput = z.infer<typeof discordCardSummaryStatusInputSchema>;
+export type DiscordCardCoverStatusInput = z.infer<typeof discordCardCoverStatusInputSchema>;
 export type DiscordAskBoardStatusInput = z.infer<typeof discordAskBoardStatusInputSchema>;
 export type DiscordThreadToCardInput = z.infer<typeof discordThreadToCardInputSchema>;
 export type DiscordThreadToCardStatusInput = z.infer<typeof discordThreadToCardStatusInputSchema>;

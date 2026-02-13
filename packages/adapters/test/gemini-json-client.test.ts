@@ -74,6 +74,7 @@ test("adapters: gemini ask-board client accepts fenced json output", async () =>
     ]
   });
 
+  assert.ok(response.references);
   assert.equal(response.references.length, 1);
   assert.equal(response.references[0]?.chunkId, "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a");
 });
@@ -106,6 +107,33 @@ test("adapters: gemini thread-to-card client parses strict draft output", async 
   assert.equal(draft.title, "Stabilize release train");
   assert.equal(draft.checklist?.length, 2);
   assert.equal(draft.labels?.[0]?.color, "orange");
+});
+
+test("adapters: gemini daily standup client normalizes array candidate", async () => {
+  const fetchImpl = createFetchWithCandidate(
+    JSON.stringify([
+      {
+        yesterday: ["Closed out release checklist items."],
+        today: ["Review open PRs and unblock deployments."],
+        blockers: []
+      }
+    ])
+  );
+
+  const client = new GeminiJsonClient({
+    apiKey: "test-key",
+    fetchImpl
+  });
+
+  const standup = await client.generateDailyStandup({
+    boardTitle: "Board",
+    periodStart: "2026-02-11T00:00:00.000Z",
+    periodEnd: "2026-02-12T00:00:00.000Z",
+    cards: []
+  });
+
+  assert.equal(standup.today.length, 1);
+  assert.equal(standup.today[0], "Review open PRs and unblock deployments.");
 });
 
 test("adapters: gemini client rejects schema-invalid model output", async () => {

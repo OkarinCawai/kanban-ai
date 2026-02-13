@@ -5,9 +5,11 @@ import {
   askBoardInputSchema,
   askBoardResultSchema,
   discordAskBoardInputSchema,
+  discordCardCoverInputSchema,
   discordCardEditInputSchema,
   discordCardSummarizeInputSchema,
   discordAskBoardStatusInputSchema,
+  discordCardCoverStatusInputSchema,
   discordCardSummaryStatusInputSchema,
   discordThreadToCardConfirmInputSchema,
   discordThreadToCardInputSchema,
@@ -22,13 +24,28 @@ import {
   createCardInputSchema,
   geminiAskBoardOutputSchema,
   geminiCardSummaryOutputSchema,
+  geminiCoverSpecOutputSchema,
   geminiThreadToCardOutputSchema,
+  weeklyRecapOutputSchema,
+  dailyStandupOutputSchema,
   moveCardInputSchema,
+  queueCardCoverInputSchema,
+  queueWeeklyRecapInputSchema,
+  queueDailyStandupInputSchema,
   outboxEventSchema,
   queueThreadToCardInputSchema,
   queueCardSummaryInputSchema,
+  coverJobAcceptedSchema,
+  coverGenerateSpecRequestedPayloadSchema,
+  cardCoverResultSchema,
+  weeklyRecapResultSchema,
+  dailyStandupResultSchema,
   threadToCardResultSchema,
-  updateCardInputSchema
+  updateCardInputSchema,
+  queueDetectStuckInputSchema,
+  hygieneJobAcceptedSchema,
+  hygieneDetectStuckRequestedPayloadSchema,
+  boardStuckReportResultSchema
 } from "../src/index.js";
 
 test("contracts: accepts valid create payloads", () => {
@@ -138,6 +155,43 @@ test("contracts: validates ai queue inputs and accepted response", () => {
     question: "What is blocking release?",
     topK: 6
   });
+  const recap = queueWeeklyRecapInputSchema.parse({
+    lookbackDays: 7,
+    styleHint: "crisp, executive-friendly"
+  });
+  const standup = queueDailyStandupInputSchema.parse({
+    lookbackHours: 24,
+    styleHint: "bullet points"
+  });
+
+  const recapOutput = weeklyRecapOutputSchema.parse({
+    summary: "Week recap summary",
+    highlights: ["Highlight 1"],
+    risks: ["Risk 1"],
+    actionItems: ["Action 1"]
+  });
+  const standupOutput = dailyStandupOutputSchema.parse({
+    yesterday: ["Did thing"],
+    today: ["Do next thing"],
+    blockers: ["None"]
+  });
+
+  const recapResult = weeklyRecapResultSchema.parse({
+    boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    status: "completed",
+    periodStart: "2026-02-01T00:00:00.000Z",
+    periodEnd: "2026-02-08T00:00:00.000Z",
+    recap: recapOutput
+  });
+  const standupResult = dailyStandupResultSchema.parse({
+    boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    status: "completed",
+    periodStart: "2026-02-11T00:00:00.000Z",
+    periodEnd: "2026-02-12T00:00:00.000Z",
+    standup: standupOutput
+  });
   const accepted = aiJobAcceptedSchema.parse({
     jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
     eventType: "ai.thread-to-card.requested",
@@ -158,8 +212,85 @@ test("contracts: validates ai queue inputs and accepted response", () => {
 
   assert.equal(summarize.reason, "Prioritize blockers.");
   assert.equal(ask.topK, 6);
+  assert.equal(recap.lookbackDays, 7);
+  assert.equal(standup.lookbackHours, 24);
+  assert.equal(recapResult.recap?.summary, "Week recap summary");
+  assert.equal(standupResult.standup?.today.length, 1);
   assert.equal(accepted.status, "queued");
   assert.equal(threadQueue.sourceThreadId, "789");
+});
+
+test("contracts: validates hygiene stuck detection inputs and status shape", () => {
+  const queue = queueDetectStuckInputSchema.parse({ thresholdDays: 10 });
+  const accepted = hygieneJobAcceptedSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    eventType: "hygiene.detect-stuck.requested",
+    status: "queued",
+    queuedAt: new Date().toISOString()
+  });
+  const payload = hygieneDetectStuckRequestedPayloadSchema.parse({
+    jobId: accepted.jobId,
+    boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    actorUserId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    thresholdDays: queue.thresholdDays ?? 7,
+    asOf: new Date().toISOString()
+  });
+  const status = boardStuckReportResultSchema.parse({
+    boardId: payload.boardId,
+    jobId: payload.jobId,
+    status: "completed",
+    report: {
+      asOf: payload.asOf,
+      thresholdDays: payload.thresholdDays,
+      stuckCount: 1,
+      cards: [
+        {
+          cardId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+          listId: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+          title: "Old card",
+          updatedAt: payload.asOf,
+          inactiveDays: 10
+        }
+      ]
+    }
+  });
+
+  assert.equal(queue.thresholdDays, 10);
+  assert.equal(status.report?.cards.length, 1);
+});
+
+test("contracts: validates cover queue inputs, spec output, and status shape", () => {
+  const queue = queueCardCoverInputSchema.parse({ styleHint: "bold, high-contrast" });
+  const accepted = coverJobAcceptedSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    eventType: "cover.generate-spec.requested",
+    status: "queued",
+    queuedAt: new Date().toISOString()
+  });
+  const payload = coverGenerateSpecRequestedPayloadSchema.parse({
+    jobId: accepted.jobId,
+    cardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    actorUserId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    styleHint: queue.styleHint
+  });
+  const spec = geminiCoverSpecOutputSchema.parse({
+    template: "mosaic",
+    palette: "ocean",
+    title: "Release Plan",
+    subtitle: "Week 7",
+    badges: [{ text: "urgent", tone: "warning" }]
+  });
+  const status = cardCoverResultSchema.parse({
+    cardId: payload.cardId,
+    jobId: payload.jobId,
+    status: "completed",
+    spec,
+    imageUrl: "https://example.com/covers/signed-url.png",
+    updatedAt: new Date().toISOString()
+  });
+
+  assert.equal(queue.styleHint, "bold, high-contrast");
+  assert.equal(status.spec?.palette, "ocean");
 });
 
 test("contracts: validates ai event payload and strict model output schemas", () => {
@@ -281,6 +412,13 @@ test("contracts: validates discord ai command payloads", () => {
     reason: "Focus on blockers."
   });
 
+  const cover = discordCardCoverInputSchema.parse({
+    guildId: "123",
+    channelId: "456",
+    cardId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+    styleHint: "Make it feel like a blueprint."
+  });
+
   const ask = discordAskBoardInputSchema.parse({
     guildId: "123",
     channelId: "456",
@@ -294,6 +432,12 @@ test("contracts: validates discord ai command payloads", () => {
     cardId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a"
   });
 
+  const coverStatus = discordCardCoverStatusInputSchema.parse({
+    guildId: "123",
+    channelId: "456",
+    cardId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a"
+  });
+
   const askStatus = discordAskBoardStatusInputSchema.parse({
     guildId: "123",
     channelId: "456",
@@ -301,8 +445,10 @@ test("contracts: validates discord ai command payloads", () => {
   });
 
   assert.equal(summarize.reason, "Focus on blockers.");
+  assert.equal(cover.styleHint, "Make it feel like a blueprint.");
   assert.equal(ask.topK, 7);
   assert.equal(summaryStatus.guildId, "123");
+  assert.equal(coverStatus.guildId, "123");
   assert.equal(askStatus.jobId, "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a");
 });
 

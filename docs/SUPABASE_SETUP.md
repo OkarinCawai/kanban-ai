@@ -6,12 +6,15 @@ Use `.env` (already ignored by Git) with these keys:
 
 - `SUPABASE_URL`
 - `SUPABASE_PUBLISHABLE_KEY`
-- `SUPABASE_SERVICE_ROLE_KEY` (optional until backend admin tasks are needed)
+- `SUPABASE_SERVICE_ROLE_KEY` (required for M5 cover storage + signed URL operations)
 - `SUPABASE_DB_URL` (needed for direct SQL migrations/tests)
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL` (optional; defaults to `gemini-2.0-flash`)
 - `GEMINI_EMBEDDING_MODEL` (optional; defaults to `text-embedding-004`)
 - `BOARD_DOCUMENT_SYNC_LIMIT` (optional; defaults to `50`)
+- `COVER_BUCKET` (optional; defaults to `covers`)
+- `COVER_CACHE_CONTROL` (optional; defaults to `3600`)
+- `COVER_SIGNED_URL_TTL_SECONDS` (optional; defaults to `3600`)
 
 Reference template: `.env.example`
 
@@ -24,6 +27,9 @@ Run SQL from:
 - `infra/db/migrations/0003_m3_ai_rag_scaffold.sql`
 - `infra/db/migrations/0004_m8_card_enrichment.sql`
 - `infra/db/migrations/0005_m4_thread_to_card.sql`
+- `infra/db/migrations/0006_m5_deterministic_covers.sql`
+- `infra/db/migrations/0007_m6_hygiene_digests.sql`
+- `infra/db/migrations/0008_m9_outbox_ai_viewer_enqueue.sql`
 
 Apply it in Supabase SQL Editor or your migration pipeline.
 
@@ -38,10 +44,19 @@ Apply it in Supabase SQL Editor or your migration pipeline.
 - Supabase and Gemini keys are now wired into runtime env handling.
 - API defaults to Supabase-backed repository for request paths.
 - For isolated local tests, set `KANBAN_REPOSITORY=memory`.
-- `npm run db:migrate` applies migrations `0001` through `0005` (M1/M2/M3/M8/M4) using `SUPABASE_DB_URL`.
+- `npm run db:migrate` applies migrations `0001` through `0007` (M1/M2/M3/M8/M4/M5/M6) using `SUPABASE_DB_URL`.
+- `npm run db:migrate` applies migrations `0001` through `0008` (M1/M2/M3/M8/M4/M5/M6/M9) using `SUPABASE_DB_URL`.
 - `npm run test:policy` includes live Supabase RLS verification (`infra/db/tests/rls-live.test.mjs`).
 - `npm run verify:live` validates local web/api/discord/worker liveness plus M2 command-path probes.
 - Deployment runbook: `docs/M2_DEPLOY_CHECKLIST.md`.
+
+## 5a) Supabase Storage bucket for covers (M5)
+
+Worker renders deterministic cover PNGs and uploads them to Supabase Storage.
+
+Required:
+- Create a private bucket named `covers` (or set `COVER_BUCKET` to your chosen bucket name).
+- Ensure `SUPABASE_SERVICE_ROLE_KEY` is set for worker + API cover URL signing.
 
 ## 5) Discord social login (M2)
 

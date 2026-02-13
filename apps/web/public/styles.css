@@ -369,6 +369,39 @@ button:focus-visible {
   transition: transform 120ms ease, background-color 120ms ease;
 }
 
+.card-cover-shell {
+  height: 82px;
+  border: 2px solid var(--line-heavy);
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+  background:
+    radial-gradient(circle at 18% 30%, rgba(9, 121, 173, 0.18), transparent 60%),
+    radial-gradient(circle at 74% 62%, rgba(235, 94, 40, 0.14), transparent 55%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(11, 16, 32, 0.05),
+      rgba(11, 16, 32, 0.05) 8px,
+      rgba(255, 255, 255, 0.0) 8px,
+      rgba(255, 255, 255, 0.0) 16px
+    );
+}
+
+.card-cover-shell.has-cover {
+  background: #0b1020;
+}
+
+.card-cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: none;
+}
+
+.card-cover-shell.has-cover .card-cover-img {
+  display: block;
+}
+
 .card:focus-within {
   outline: 2px solid var(--signal-blue);
   outline-offset: 2px;
@@ -404,6 +437,11 @@ button:focus-visible {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
+}
+
+.card-status-stack {
+  display: grid;
+  gap: 6px;
 }
 
 .card-badges {
@@ -488,7 +526,8 @@ button:focus-visible {
   background: #9de9e0;
 }
 
-.card-summary-updated-at {
+.card-summary-updated-at,
+.card-cover-updated-at {
   font-family: "IBM Plex Mono", "Consolas", monospace;
   font-size: 10px;
   color: var(--ink-soft);
@@ -514,6 +553,10 @@ button:focus-visible {
 
 .card-actions .edit-card-btn {
   background: #bde7ff;
+}
+
+.card-actions .cover-card-btn {
+  background: #e1ffe9;
 }
 
 .card-summary {

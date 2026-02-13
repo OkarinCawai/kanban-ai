@@ -393,51 +393,145 @@
             "2026-02-12: verify:live now validates M4 bridge flow end-to-end (queue, completion, confirm, idempotency)."
           ]
         },
-        {
-          id: "M5",
-          title: "Deterministic Card Covers",
-          status: "planned",
-          tasks: [
-            { label: "CoverSpec contracts", done: false },
-            { label: "Spec generation job", done: false },
-            { label: "SVG/PNG rendering and storage", done: false },
-            { label: "Web + Discord cover display", done: false }
-          ],
-          updates: [
-            "2026-02-11: Sequenced after M4."
-          ]
-        },
-        {
-          id: "M6",
-          title: "Hygiene + Digests",
-          status: "planned",
-          tasks: [
-            { label: "Stuck-card detection", done: false },
-            { label: "Weekly recap generation", done: false },
-            { label: "Optional standup output", done: false }
-          ],
-          updates: [
-            "2026-02-11: Sequenced after M5."
-          ]
-        },
-        {
-          id: "M9",
-          title: "Ask-AI Evaluation Granularity + Quality Gates",
-          status: "planned",
-          tasks: [
-            { label: "Curated fixture boards + deterministic question set", done: false },
-            { label: "Scenario matrix for enqueue/lifecycle/grounding/negative cases", done: false },
-            { label: "Permission-boundary (RLS leakage) evaluation suite", done: false },
-            { label: "Fallback + retry-idempotency checks", done: false },
-            { label: "Web/Discord async UX gate checks (queued/failed/completed)", done: false },
-            { label: "Run-report output with gate-level pass/fail summary", done: false }
-          ],
-          updates: [
-            "2026-02-11: Added granular ask-AI test milestone and linked plan in docs/ASK_AI_EVAL_PLAN.md.",
-            "2026-02-11: Sequenced as the final milestone after M4/M5/M6 completion."
-          ]
-        }
-      ];
+	        {
+	          id: "M5",
+	          title: "Deterministic Card Covers",
+	          status: "completed",
+	          tasks: [
+	            { label: "CoverSpec contracts", done: true },
+	            { label: "Spec generation job", done: true },
+	            { label: "Deterministic PNG rendering and storage", done: true },
+	            { label: "Web + Discord cover display", done: true }
+	          ],
+	          updates: [
+	            "2026-02-11: Sequenced after M4.",
+	            "2026-02-12: Added contracts + migration 0006 + core use-cases + worker outbox handlers for deterministic cover pipeline.",
+	            "2026-02-12: API returns cover status; web can queue/poll jobs and show signed cover previews when available.",
+	            "2026-02-12: Discord now supports /card cover + /card cover-status with embed image previews via signed cover URLs.",
+	            "2026-02-12: verify:live now validates cover bucket provisioning, queue/status lifecycle, and signed URL fetch (HTTP 200)."
+	          ]
+	        },
+	        {
+	          id: "M6",
+	          title: "Hygiene + Digests",
+	          status: "completed",
+	          tasks: [
+	            { label: "Stuck-card detection", done: true },
+	            { label: "Weekly recap generation", done: true },
+	            { label: "Optional standup output", done: true }
+	          ],
+	          updates: [
+	            "2026-02-11: Sequenced after M5.",
+	            "2026-02-12: Added migration 0007 + core use-cases + worker handlers for stuck detection and weekly recaps.",
+	            "2026-02-12: verify:live now validates M6 queue + completion end-to-end.",
+	            "2026-02-12: Daily standup output wired end-to-end (API, worker handler, and verification)."
+	          ]
+	        },
+	        {
+	          id: "M9",
+	          title: "Ask-AI Evaluation Granularity + Quality Gates",
+	          status: "completed",
+	          tasks: [
+	            { label: "Curated fixture boards + deterministic question set", done: true },
+	            { label: "Scenario matrix for enqueue/lifecycle/grounding/negative cases", done: true },
+	            { label: "Permission-boundary (RLS leakage) evaluation suite", done: true },
+	            { label: "Fallback + retry-idempotency checks", done: true },
+	            { label: "Web/Discord async UX gate checks (queued/failed/completed)", done: true },
+	            { label: "Run-report output with gate-level pass/fail summary", done: true }
+	          ],
+		          updates: [
+		            "2026-02-11: Added granular ask-AI test milestone and linked plan in docs/ASK_AI_EVAL_PLAN.md.",
+		            "2026-02-12: Sequenced after M6 and before adding new AI feature milestones (board generation, agents).",
+		            "2026-02-12: Added eval runner (npm run eval:ask-ai) with seeded fixtures, grounding checks, denial checks, prompt-injection check, and Discord bridge parity."
+		          ]
+		        },
+		        {
+		          id: "M10",
+		          title: "Web React Migration",
+		          status: "planned",
+		          tasks: [
+		            { label: "Scaffold apps/web-react with Vite + React", done: false },
+		            { label: "Port board canvas to React with optimistic moves", done: false },
+		            { label: "Adopt TanStack Query + @hello-pangea/dnd", done: false },
+		            { label: "Incremental cutover with parity checklist + verify suite", done: false }
+		          ],
+		          updates: [
+		            "2026-02-12: Planned incremental migration: scaffold apps/web-react first, then cut over once parity is reached.",
+		            "2026-02-12: Keep contracts-first payloads; React becomes the UI foundation for later UX features."
+		          ]
+		        },
+		        {
+		          id: "M11",
+		          title: "Search + Discovery",
+		          status: "planned",
+		          tasks: [
+		            { label: "Postgres FTS (tsvector + GIN) over cards", done: false },
+		            { label: "Scoped search API endpoint (RLS-safe)", done: false },
+		            { label: "Web search UI with jump-to-card", done: false },
+		            { label: "Optional semantic search (pgvector) via worker jobs", done: false }
+		          ],
+		          updates: [
+		            "2026-02-12: Planned: ship keyword search first with fast indexes and denial-case coverage.",
+		            "2026-02-12: Semantic search is optional and gated behind stable embedding jobs/tests."
+		          ]
+		        },
+		        {
+		          id: "M12",
+		          title: "Generative Board Creation",
+		          status: "planned",
+		          tasks: [
+		            { label: "BoardBlueprint contract + strict validation", done: false },
+		            { label: "Async queue/status endpoints (outbox)", done: false },
+		            { label: "Preview + confirm transactional creation flow", done: false },
+		            { label: "Idempotency keys and retry-safe worker implementation", done: false }
+		          ],
+		          updates: [
+		            "2026-02-12: Planned: solve the blank-canvas problem with async, schema-validated board generation."
+		          ]
+		        },
+		        {
+		          id: "M13",
+		          title: "Rich Text Descriptions",
+		          status: "planned",
+		          tasks: [
+		            { label: "Tiptap editor integration (React)", done: false },
+		            { label: "Durable storage format (JSONB) + safe rendering", done: false },
+		            { label: "Keep checklists as structured data", done: false },
+		            { label: "FTS indexing over rendered plain text", done: false }
+		          ],
+		          updates: [
+		            "2026-02-12: Planned: rich text for descriptions only; checklist semantics stay structured and queryable."
+		          ]
+		        },
+		        {
+		          id: "M14",
+		          title: "Realtime Collaboration + Presence",
+		          status: "planned",
+		          tasks: [
+		            { label: "RLS-safe realtime strategy (events table vs postgres_changes)", done: false },
+		            { label: "Board-scoped sync in web client with fallback", done: false },
+		            { label: "Presence (who is here) UI", done: false },
+		            { label: "Conflict UX aligned with version-based writes", done: false }
+		          ],
+		          updates: [
+		            "2026-02-12: Planned post-v1: realtime is additive and must not weaken RLS guarantees."
+		          ]
+		        },
+		        {
+		          id: "M15",
+		          title: "Intelligent Agents (Suggestion-first)",
+		          status: "planned",
+		          tasks: [
+		            { label: "Auto-triage suggestions on card creation", done: false },
+		            { label: "\"Break down with AI\" checklist proposals", done: false },
+		            { label: "User-apply actions (no silent mutations)", done: false },
+		            { label: "Idempotent, retry-safe worker jobs", done: false }
+		          ],
+		          updates: [
+		            "2026-02-12: Planned post-v1: agents produce suggestions first, with explicit user acceptance."
+		          ]
+		        }
+	      ];
 
       const TEST_SIGNAL = {
         passing: 70,

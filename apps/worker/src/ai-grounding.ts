@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   geminiAskBoardOutputSchema,
+  type GeminiAskBoardModelOutput,
   type GeminiAskBoardOutput
 } from "@kanban/contracts";
 import type {
@@ -37,11 +38,12 @@ export const roughTokenCount = (content: string): number => {
 };
 
 export const buildGroundedAnswer = (
-  rawAnswer: GeminiAskBoardOutput,
+  rawAnswer: GeminiAskBoardModelOutput,
   contexts: GeminiAskBoardContext[]
 ): GeminiAskBoardOutput => {
   const contextByChunkId = new Map(contexts.map((context) => [context.chunkId, context]));
-  const groundedReferences = rawAnswer.references
+  const rawReferences = Array.isArray(rawAnswer.references) ? rawAnswer.references : [];
+  const groundedReferences = rawReferences
     .map((reference) => {
       const context = contextByChunkId.get(reference.chunkId);
       if (!context) {

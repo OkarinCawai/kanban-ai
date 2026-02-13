@@ -1,13 +1,17 @@
 import type {
   AskBoardResult,
   Board,
+  BoardStuckReportResult,
   Card,
   CardChecklistItem,
+  CardCoverResult,
   CardLabel,
   CardSummaryResult,
   KanbanList,
   OutboxEvent,
   Role,
+  DailyStandupResult,
+  WeeklyRecapResult,
   ThreadToCardDraft,
   ThreadToCardResult
 } from "@kanban/contracts";
@@ -112,6 +116,60 @@ export interface UpsertAskBoardRequestParams {
   updatedAt: string;
 }
 
+export interface UpsertCardCoverParams {
+  cardId: string;
+  orgId: string;
+  boardId: string;
+  jobId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  specJson?: unknown;
+  bucket?: string;
+  objectPath?: string;
+  contentType?: string;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
+export interface UpsertWeeklyRecapParams {
+  boardId: string;
+  orgId: string;
+  jobId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  periodStart: string;
+  periodEnd: string;
+  recapJson?: unknown;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
+export interface UpsertDailyStandupParams {
+  boardId: string;
+  orgId: string;
+  jobId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  periodStart: string;
+  periodEnd: string;
+  standupJson?: unknown;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
+export interface UpsertBoardStuckReportParams {
+  boardId: string;
+  orgId: string;
+  jobId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  thresholdDays: number;
+  asOf: string;
+  reportJson?: unknown;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
 export interface UpsertThreadCardExtractionParams {
   id: string;
   orgId: string;
@@ -140,6 +198,10 @@ export interface KanbanMutationContext {
   moveCard(input: MoveCardParams): Promise<Card>;
   upsertCardSummary(input: UpsertCardSummaryParams): Promise<void>;
   upsertAskBoardRequest(input: UpsertAskBoardRequestParams): Promise<void>;
+  upsertCardCover(input: UpsertCardCoverParams): Promise<void>;
+  upsertWeeklyRecap(input: UpsertWeeklyRecapParams): Promise<void>;
+  upsertDailyStandup(input: UpsertDailyStandupParams): Promise<void>;
+  upsertBoardStuckReport(input: UpsertBoardStuckReportParams): Promise<void>;
   upsertThreadCardExtraction(input: UpsertThreadCardExtractionParams): Promise<void>;
   appendOutbox(event: OutboxEvent): Promise<void>;
 }
@@ -149,7 +211,11 @@ export interface KanbanRepository {
   findListById(listId: string): Promise<KanbanList | null>;
   findCardById(cardId: string): Promise<Card | null>;
   findCardSummaryByCardId(cardId: string): Promise<CardSummaryResult | null>;
+  findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null>;
   findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null>;
+  findWeeklyRecapByBoardId(boardId: string): Promise<WeeklyRecapResult | null>;
+  findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null>;
+  findBoardStuckReportByBoardId(boardId: string): Promise<BoardStuckReportResult | null>;
   findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null>;
   listListsByBoardId(boardId: string): Promise<KanbanList[]>;
   listCardsByBoardId(boardId: string): Promise<Card[]>;
