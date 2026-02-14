@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { richTextDocSchema } from "./rich-text.js";
 
 const nonEmptyString = z.string().trim().min(1);
 const uuidString = z.string().uuid();
@@ -98,6 +99,7 @@ export const cardSchema = z.object({
   listId: nonEmptyString,
   title: nonEmptyString,
   description: boundedDescription.optional(),
+  descriptionRich: richTextDocSchema.optional(),
   startAt: isoDateTimeString.optional(),
   dueAt: isoDateTimeString.optional(),
   locationText: cardLocationTextSchema.optional(),
@@ -136,6 +138,7 @@ export const createCardInputSchema = z.object({
   listId: nonEmptyString,
   title: nonEmptyString,
   description: boundedDescription.optional(),
+  descriptionRich: richTextDocSchema.optional(),
   startAt: isoDateTimeString.optional(),
   dueAt: isoDateTimeString.optional(),
   locationText: cardLocationTextSchema.optional(),
@@ -160,6 +163,7 @@ export const updateCardInputSchema = z
   .object({
     title: nonEmptyString.optional(),
     description: boundedDescription.nullable().optional(),
+    descriptionRich: richTextDocSchema.nullable().optional(),
     startAt: isoDateTimeString.nullable().optional(),
     dueAt: isoDateTimeString.nullable().optional(),
     locationText: cardLocationTextSchema.nullable().optional(),
@@ -175,6 +179,7 @@ export const updateCardInputSchema = z
     (payload) =>
       payload.title !== undefined ||
       payload.description !== undefined ||
+      payload.descriptionRich !== undefined ||
       payload.startAt !== undefined ||
       payload.dueAt !== undefined ||
       payload.locationText !== undefined ||

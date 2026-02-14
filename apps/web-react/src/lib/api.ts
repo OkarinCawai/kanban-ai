@@ -4,7 +4,10 @@ import {
   aiJobAcceptedSchema,
   askBoardInputSchema,
   askBoardResultSchema,
+  boardBlueprintConfirmResponseSchema,
+  boardBlueprintResultSchema,
   boardSchema,
+  confirmBoardBlueprintInputSchema,
   coverJobAcceptedSchema,
   cardCoverResultSchema,
   cardSchema,
@@ -16,6 +19,7 @@ import {
   moveCardInputSchema,
   queueCardCoverInputSchema,
   queueCardSummaryInputSchema,
+  queueBoardBlueprintInputSchema,
   queueSemanticCardSearchInputSchema,
   searchCardsQuerySchema,
   searchCardsResponseSchema,
@@ -248,6 +252,31 @@ export const createApiClient = (context: ApiContext) => ({
       path: `/ai/ask-board/${encodeURIComponent(jobId)}`,
       method: "GET",
       outputSchema: askBoardResultSchema
+    }),
+  queueBoardBlueprint: (input: unknown) =>
+    callApi({
+      context,
+      path: "/ai/board-blueprint",
+      method: "POST",
+      input,
+      inputSchema: queueBoardBlueprintInputSchema,
+      outputSchema: aiJobAcceptedSchema
+    }),
+  getBoardBlueprintResult: (jobId: string) =>
+    callApi({
+      context,
+      path: `/ai/board-blueprint/${encodeURIComponent(jobId)}`,
+      method: "GET",
+      outputSchema: boardBlueprintResultSchema
+    }),
+  confirmBoardBlueprint: (jobId: string, input: unknown) =>
+    callApi({
+      context,
+      path: `/ai/board-blueprint/${encodeURIComponent(jobId)}/confirm`,
+      method: "POST",
+      input,
+      inputSchema: confirmBoardBlueprintInputSchema,
+      outputSchema: boardBlueprintConfirmResponseSchema
     }),
   queueSemanticCardSearch: (boardId: string, input: unknown) =>
     callApi({

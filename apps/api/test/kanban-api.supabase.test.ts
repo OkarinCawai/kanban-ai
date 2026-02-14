@@ -51,21 +51,21 @@ test(
 
     await admin.connect();
 
-    const migrationCheck = await admin.query<{ present: boolean }>(
+    const migrationCheck = await admin.query<{ count: number }>(
       `
-        select exists (
-          select 1
-          from information_schema.columns
-          where table_schema = 'public'
-            and table_name = 'cards'
-            and column_name = 'start_at'
-        ) as present
+        select count(*)::int as count
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'cards'
+          and column_name in ('start_at', 'description_rich_json')
       `
     );
-    if (!migrationCheck.rows[0]?.present) {
+    if ((migrationCheck.rows[0]?.count ?? 0) < 2) {
       await app.close();
       await admin.end();
-      t.skip("M8 migration 0004_m8_card_enrichment.sql is not applied in this Supabase DB.");
+      t.skip(
+        "Required migrations are not applied in this Supabase DB (M8 start_at and M13 description_rich_json)."
+      );
       return;
     }
 

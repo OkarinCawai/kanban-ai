@@ -180,6 +180,13 @@ Newest decision with same topic supersedes older entries.
 - Decision: Extend `outbox_events_insert_policy` to allow `viewer` inserts for `ai.card-semantic-search.requested` under the same guardrails as ask-board (request scoped to `current_org_id()`, `actorUserId = current_user_id()`, `jobId=id`, `boardId=board_id`, board belongs to org).
 - Consequences: Viewers can run semantic search without loosening outbox permissions for other event types; outbox remains a security boundary for async side effects while limiting abuse to self-scoped, board-scoped jobs.
 
+## D-025: Post-v1 realtime collaboration uses Supabase Realtime (postgres_changes + presence) with polling fallback
+- Date: 2026-02-14
+- Status: `accepted`
+- Context: D-008 deferred realtime collaboration for v1. M14 requires near-instant multi-client updates and presence while keeping Supabase RLS as the security boundary and avoiding extra server-side complexity.
+- Decision: Implement realtime collaboration in the web React client using Supabase Realtime Postgres Changes subscriptions (board-scoped filters on `public.cards`, `public.lists`, and `public.boards`) plus Supabase Presence on the same board channel. On each change event, the client debounces and invalidates board queries (lists/cards/board) and refetches through the API. If realtime is disconnected (timeout/error/closed), the client falls back to periodic polling invalidations. Stale-write conflicts (HTTP 409) are treated as recoverable and trigger a board refresh.
+- Consequences: Realtime is additive and does not replace existing optimistic UI or API contract flows. Supabase must have Realtime enabled for subscribed tables. Clients must tolerate missed realtime events (polling fallback + manual refresh remain valid).
+
 ## Template for new decisions
 
 Use this block for future entries:

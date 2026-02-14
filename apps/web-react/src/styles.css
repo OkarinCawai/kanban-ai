@@ -144,6 +144,25 @@ body {
   color: #063e32;
 }
 
+.badge-realtime {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge-realtime-offline {
+  background: #fff3d6;
+  color: #5b3e02;
+}
+
+.realtime-strip {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 10px;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -704,6 +723,100 @@ button:focus-visible {
   resize: vertical;
 }
 
+.rich-field {
+  display: grid;
+  gap: 6px;
+}
+
+.rich-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+}
+
+.rich-toolbar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button.rich-btn {
+  min-height: 32px;
+  padding: 5px 9px;
+  background: #f0e7cd;
+  box-shadow: var(--shadow-soft);
+}
+
+button.rich-btn.is-active {
+  background: var(--signal-cyan);
+  color: #063e32;
+}
+
+.rich-surface {
+  border: 2px solid var(--line-heavy);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 249, 233, 0.96) 100%);
+  box-shadow: inset 1px 1px 0 rgba(15, 15, 15, 0.14);
+  padding: 10px;
+  min-height: 140px;
+}
+
+.rich-surface.is-disabled {
+  opacity: 0.65;
+}
+
+.rich-surface .ProseMirror {
+  outline: none;
+  min-height: 118px;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.rich-surface .ProseMirror p {
+  margin: 0 0 10px;
+}
+
+.rich-surface .ProseMirror ul,
+.rich-surface .ProseMirror ol {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.rich-surface .ProseMirror code {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 0.92em;
+  background: #f5edd8;
+  border: 1px solid rgba(18, 18, 18, 0.35);
+  padding: 0 4px;
+}
+
+.rich-surface .ProseMirror pre {
+  border: 2px solid var(--line-heavy);
+  background: #f5edd8;
+  padding: 10px;
+  overflow: auto;
+}
+
+.rich-surface .ProseMirror pre code {
+  border: none;
+  background: transparent;
+  padding: 0;
+}
+
+.rich-surface .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: rgba(55, 51, 41, 0.6);
+  pointer-events: none;
+  height: 0;
+}
+
+.rich-hint {
+  margin-top: 8px;
+}
+
 .detail-form.is-disabled {
   opacity: 0.65;
 }
@@ -838,6 +951,24 @@ kbd {
   margin-top: 10px;
 }
 
+.search-mode {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+button.mode-chip {
+  min-height: 28px;
+  padding: 4px 10px;
+  background: var(--paper-dense);
+  box-shadow: var(--shadow-soft);
+  font-size: 10px;
+}
+
+button.mode-chip.is-active {
+  background: var(--signal-yellow);
+}
+
 .search-results {
   list-style: none;
   padding: 0;
@@ -887,6 +1018,116 @@ kbd {
 .search-hit-snippet {
   font-size: 13px;
   color: var(--ink);
+}
+
+.blueprint-preview {
+  margin-top: 12px;
+  border: 2px solid var(--line-heavy);
+  box-shadow: var(--shadow-soft);
+  padding: 10px;
+  max-height: 360px;
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(219, 243, 255, 0.92) 100%),
+    repeating-linear-gradient(
+      to right,
+      rgba(9, 121, 173, 0.15) 0px,
+      rgba(9, 121, 173, 0.15) 1px,
+      transparent 1px,
+      transparent 24px
+    ),
+    repeating-linear-gradient(
+      to bottom,
+      rgba(9, 121, 173, 0.15) 0px,
+      rgba(9, 121, 173, 0.15) 1px,
+      transparent 1px,
+      transparent 24px
+    );
+}
+
+.blueprint-body {
+  display: grid;
+  gap: 12px;
+}
+
+.blueprint-meta {
+  display: grid;
+  gap: 6px;
+}
+
+.blueprint-title {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+}
+
+.blueprint-description {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.blueprint-description.is-muted {
+  opacity: 0.7;
+}
+
+.blueprint-lists {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.blueprint-list {
+  border: 2px solid var(--line-heavy);
+  background: rgba(255, 255, 255, 0.86);
+  padding: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.blueprint-list-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-size: 11px;
+}
+
+.blueprint-count {
+  border: 2px solid var(--line-heavy);
+  background: var(--signal-cyan);
+  color: #063e32;
+  padding: 1px 6px;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+
+.blueprint-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.blueprint-card {
+  border: 1px dashed rgba(18, 18, 18, 0.65);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 249, 233, 0.92) 100%);
+  padding: 6px 7px;
+  font-size: 13px;
+}
+
+.blueprint-confirm {
+  margin-top: 12px;
+  border-top: 1px dashed var(--line-soft);
+  padding-top: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

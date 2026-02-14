@@ -88,6 +88,12 @@ test("contracts: validates enriched card create/update payloads", () => {
     listId: "list-1",
     title: "Design review",
     description: "Prepare notes",
+    descriptionRich: {
+      type: "doc",
+      content: [
+        { type: "paragraph", content: [{ type: "text", text: "Prepare notes" }] }
+      ]
+    },
     startAt: "2026-02-12T09:00:00.000Z",
     dueAt: "2026-02-14T17:00:00.000Z",
     locationText: "HQ room 4",
@@ -105,6 +111,7 @@ test("contracts: validates enriched card create/update payloads", () => {
   const updated = updateCardInputSchema.parse({
     expectedVersion: 3,
     description: null,
+    descriptionRich: null,
     dueAt: null,
     assigneeUserIds: ["f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a"],
     checklist: [{ title: "Draft agenda", isDone: true, position: 0 }]

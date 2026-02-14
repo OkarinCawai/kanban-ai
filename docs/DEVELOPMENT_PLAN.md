@@ -286,6 +286,7 @@ Progress snapshot:
 - [x] Add a scoped search API endpoint (board/org scoped; enforced by RLS).
 - [x] Add a web search UI (query box, result list, and jump-to-card interaction).
 - [x] Optional: semantic search via async worker job (embeddings + cosine) with permission-aware retrieval.
+- [x] Web-react UI supports semantic search mode (queue + poll) alongside keyword (FTS) search.
 
 Deliverables:
 - Schema migration for FTS columns/indexes.
@@ -307,6 +308,7 @@ Progress snapshot:
 - [x] Add a preview + confirm flow: users review the blueprint before any DB writes.
 - [x] Confirm step creates board/lists/cards transactionally via `KanbanRepository`.
 - [x] Idempotency keys prevent duplicate boards across retries.
+- [x] Web-react UI panel to generate, preview, and confirm board blueprints.
 
 Deliverables:
 - New async job type + status storage (RLS-protected).
@@ -319,14 +321,14 @@ Exit criteria:
 
 ## Milestone 13: Rich Text Descriptions (Tiptap)
 
-Status (2026-02-12): `planned`
+Status (2026-02-14): `completed`
 
 Progress snapshot:
-- [ ] Add rich text editing for card descriptions in the React UI (Tiptap).
-- [ ] Store description in a durable format (JSONB preferred) with safe rendering and backwards compatibility.
-- [ ] Keep checklists as structured data (do not embed checklist semantics inside rich text).
-- [ ] Ensure search indexing covers the rendered plain-text form for FTS.
-- [ ] Migrate existing plain text descriptions forward without data loss.
+- [x] Add rich text editing for card descriptions in the React UI (Tiptap).
+- [x] Store description in a durable format (JSONB preferred) with safe rendering and backwards compatibility.
+- [x] Keep checklists as structured data (do not embed checklist semantics inside rich text).
+- [x] Ensure search indexing covers the rendered plain-text form for FTS.
+- [x] Migrate existing plain text descriptions forward without data loss.
 
 Deliverables:
 - Schema changes + API payload updates captured in `packages/contracts`.
@@ -339,14 +341,15 @@ Exit criteria:
 
 ## Milestone 14: Realtime Collaboration + Presence (Post-v1)
 
-Status (2026-02-12): `planned`
+Status (2026-02-14): `in-progress`
 
 Progress snapshot:
-- [ ] Revisit D-008 scope boundary and explicitly accept realtime collaboration as a post-v1 milestone.
-- [ ] Implement board-scoped realtime updates (Supabase Realtime) with an RLS-safe strategy (direct `postgres_changes` only if proven safe; otherwise subscribe to an RLS-protected event stream table).
-- [ ] Presence: show "who is here" at board-level (and optionally card-level focus).
-- [ ] Conflict handling: keep version-based writes; when stale writes occur, surface a recoverable UX.
-- [ ] Keep polling as a fallback mode for degraded realtime conditions.
+- [x] Revisit D-008 scope boundary and explicitly accept realtime collaboration as a post-v1 milestone (D-025).
+- [x] Implement board-scoped realtime updates (Supabase Realtime `postgres_changes`) with RLS-safe board filters and query invalidation.
+- [x] Presence: show "who is here" at board-level (Supabase Presence on board channel).
+- [x] Conflict handling: keep version-based writes; stale writes surface a recoverable UX (refresh on 409).
+- [x] Keep polling as a fallback mode for degraded realtime conditions.
+- [ ] Live verification: enable Realtime for subscribed tables and confirm two-tab sync + presence.
 
 Deliverables:
 - Realtime adapter wiring for the web client.

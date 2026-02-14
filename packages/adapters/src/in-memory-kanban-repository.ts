@@ -276,6 +276,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           listId: input.listId,
           title: input.title,
           description: input.description,
+          descriptionRich: input.descriptionRich,
           startAt: input.startAt,
           dueAt: input.dueAt,
           locationText: input.locationText,
@@ -306,6 +307,9 @@ export class InMemoryKanbanRepository implements KanbanRepository {
         const nextDescription = hasOwn(input, "description")
           ? (input.description ?? undefined)
           : current.description;
+        const nextDescriptionRich = hasOwn(input, "descriptionRich")
+          ? (input.descriptionRich ?? undefined)
+          : current.descriptionRich;
         const nextStartAt = hasOwn(input, "startAt")
           ? (input.startAt ?? undefined)
           : current.startAt;
@@ -338,6 +342,7 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           ...current,
           title: input.title ?? current.title,
           description: nextDescription,
+          descriptionRich: nextDescriptionRich,
           startAt: nextStartAt,
           dueAt: nextDueAt,
           locationText: nextLocationText,

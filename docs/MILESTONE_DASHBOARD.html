@@ -463,63 +463,71 @@
 			          ]
 			        },
 		        {
-		          id: "M11",
-		          title: "Search + Discovery",
-		          status: "completed",
-		          tasks: [
-		            { label: "Postgres FTS (tsvector + GIN) over cards", done: true },
-		            { label: "Scoped search API endpoint (RLS-safe)", done: true },
-		            { label: "Web search UI with jump-to-card", done: true },
-		            { label: "Optional semantic search via worker jobs (embeddings)", done: true }
-		          ],
-		          updates: [
-		            "2026-02-12: Planned: ship keyword search first with fast indexes and denial-case coverage.",
-		            "2026-02-12: Semantic search is optional and gated behind stable embedding jobs/tests.",
-		            "2026-02-13: Shipped board-scoped card search (FTS) with labels indexed + API + web-react UI.",
-		            "2026-02-13: Added async semantic card search (queue + status) with RLS-safe retrieval."
-		          ]
-		        },
-		        {
-		          id: "M12",
-		          title: "Generative Board Creation",
-		          status: "completed",
-		          tasks: [
-		            { label: "BoardBlueprint contract + strict validation", done: true },
-		            { label: "Async queue/status endpoints (outbox)", done: true },
-		            { label: "Preview + confirm transactional creation flow", done: true },
-		            { label: "Idempotency keys and retry-safe worker implementation", done: true }
-		          ],
-		          updates: [
-		            "2026-02-12: Planned: solve the blank-canvas problem with async, schema-validated board generation.",
-		            "2026-02-13: Implemented async board blueprint generation + preview/confirm flow with idempotent creation."
-		          ]
-		        },
-		        {
-		          id: "M13",
-		          title: "Rich Text Descriptions",
-		          status: "planned",
-		          tasks: [
-		            { label: "Tiptap editor integration (React)", done: false },
-		            { label: "Durable storage format (JSONB) + safe rendering", done: false },
-		            { label: "Keep checklists as structured data", done: false },
-		            { label: "FTS indexing over rendered plain text", done: false }
-		          ],
-		          updates: [
-		            "2026-02-12: Planned: rich text for descriptions only; checklist semantics stay structured and queryable."
-		          ]
-		        },
+			          id: "M11",
+			          title: "Search + Discovery",
+			          status: "completed",
+			          tasks: [
+			            { label: "Postgres FTS (tsvector + GIN) over cards", done: true },
+			            { label: "Scoped search API endpoint (RLS-safe)", done: true },
+			            { label: "Web search UI with jump-to-card", done: true },
+			            { label: "Optional semantic search via worker jobs (embeddings)", done: true },
+			            { label: "Web-react semantic search mode (queue + poll + results)", done: true }
+			          ],
+			          updates: [
+			            "2026-02-12: Planned: ship keyword search first with fast indexes and denial-case coverage.",
+			            "2026-02-12: Semantic search is optional and gated behind stable embedding jobs/tests.",
+			            "2026-02-13: Shipped board-scoped card search (FTS) with labels indexed + API + web-react UI.",
+			            "2026-02-13: Added async semantic card search (queue + status) with RLS-safe retrieval.",
+			            "2026-02-13: Updated web-react search panel to toggle keyword vs semantic search."
+			          ]
+			        },
+			        {
+			          id: "M12",
+			          title: "Generative Board Creation",
+			          status: "completed",
+			          tasks: [
+			            { label: "BoardBlueprint contract + strict validation", done: true },
+			            { label: "Async queue/status endpoints (outbox)", done: true },
+			            { label: "Preview + confirm transactional creation flow", done: true },
+			            { label: "Idempotency keys and retry-safe worker implementation", done: true },
+			            { label: "Web-react UI panel for prompt/preview/confirm", done: true }
+			          ],
+			          updates: [
+			            "2026-02-12: Planned: solve the blank-canvas problem with async, schema-validated board generation.",
+			            "2026-02-13: Implemented async board blueprint generation + preview/confirm flow with idempotent creation.",
+			            "2026-02-13: Added web-react board blueprint panel (generate preview + confirm create)."
+			          ]
+			        },
+			        {
+			          id: "M13",
+			          title: "Rich Text Descriptions",
+			          status: "completed",
+			          tasks: [
+			            { label: "Tiptap editor integration (React)", done: true },
+			            { label: "Durable storage format (JSONB) + safe rendering", done: true },
+			            { label: "Keep checklists as structured data", done: true },
+			            { label: "FTS indexing over rendered plain text", done: true },
+			            { label: "Backfill existing plain text descriptions", done: true }
+			          ],
+			          updates: [
+			            "2026-02-12: Planned: rich text for descriptions only; checklist semantics stay structured and queryable.",
+			            "2026-02-14: Implemented rich card descriptions: JSONB storage + plain-text derivation for search + web-react Tiptap editor."
+			          ]
+			        },
 		        {
 		          id: "M14",
 		          title: "Realtime Collaboration + Presence",
-		          status: "planned",
+		          status: "in-progress",
 		          tasks: [
-		            { label: "RLS-safe realtime strategy (events table vs postgres_changes)", done: false },
-		            { label: "Board-scoped sync in web client with fallback", done: false },
-		            { label: "Presence (who is here) UI", done: false },
-		            { label: "Conflict UX aligned with version-based writes", done: false }
+		            { label: "RLS-safe realtime strategy (events table vs postgres_changes)", done: true },
+		            { label: "Board-scoped sync in web client with fallback", done: true },
+		            { label: "Presence (who is here) UI", done: true },
+		            { label: "Conflict UX aligned with version-based writes", done: true },
+		            { label: "Live verification (two tabs + Realtime enabled)", done: false }
 		          ],
 		          updates: [
-		            "2026-02-12: Planned post-v1: realtime is additive and must not weaken RLS guarantees."
+		            "2026-02-12: Planned post-v1: realtime is additive and must not weaken RLS guarantees.",
+		            "2026-02-14: Implemented web-react Supabase Realtime subscriptions (cards/lists/boards) + board presence + polling fallback + conflict refresh."
 		          ]
 		        },
 		        {
@@ -538,11 +546,11 @@
 		        }
 	      ];
 
-      const TEST_SIGNAL = {
-        passing: 70,
-        failing: 0,
-        verifiedAt: "2026-02-13 (latest full npm test + typecheck)"
-      };
+	      const TEST_SIGNAL = {
+	        passing: 70,
+	        failing: 0,
+	        verifiedAt: "2026-02-14 (npm test + typecheck after M14 realtime wiring)"
+	      };
 
       const boardEl = document.getElementById("board");
       const totals = {

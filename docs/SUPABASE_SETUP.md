@@ -163,3 +163,23 @@ on conflict (user_id, org_id) do update set role = excluded.role;
 Then use that same `org_id` in the web UI and either:
 - Sign in with Discord (so the API resolves `user_id` from the Supabase access token), or
 - Set `x-user-id` in the web UI to the same UUID you inserted into `public.memberships`.
+
+## 7) Realtime collaboration (M14)
+
+`apps/web-react` uses Supabase Realtime `postgres_changes` subscriptions for near-instant board updates:
+
+- `public.cards` filtered by `board_id`
+- `public.lists` filtered by `board_id`
+- `public.boards` filtered by `id`
+
+Presence is handled via Supabase Realtime Presence on a per-board channel.
+
+Supabase requirement: enable Realtime for the tables above (adds them to the `supabase_realtime` publication).
+
+SQL alternative (run in Supabase SQL editor):
+
+```sql
+alter publication supabase_realtime add table public.boards;
+alter publication supabase_realtime add table public.lists;
+alter publication supabase_realtime add table public.cards;
+```

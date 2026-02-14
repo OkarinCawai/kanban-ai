@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Board, Card, KanbanList } from "@kanban/contracts";
 
-import { createApiClient } from "./lib/api";
+import { ApiError, createApiClient } from "./lib/api";
 import { captureException } from "./lib/sentry";
 import {
   STORAGE_KEYS,
@@ -11,11 +11,13 @@ import {
   getSupabaseClient,
   readCodeVerifier
 } from "./lib/supabase";
+import { useBoardRealtime } from "./lib/useBoardRealtime";
 import { applyOptimisticMove, computePositionForAppend, type DragMovePlan } from "./lib/ordering";
 import { useStoredState } from "./lib/useStoredState";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { BoardCanvas } from "./components/BoardCanvas";
 import { BoardSearchPanel } from "./components/BoardSearchPanel";
+import { BoardBlueprintPanel } from "./components/BoardBlueprintPanel";
 import { AiDock } from "./components/AiDock";
 import { CardDetailPanel } from "./components/CardDetailPanel";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
@@ -46,6 +48,10 @@ export const App = () => {
     "What is blocked this week?"
   );
   const [askTopK, setAskTopK] = useStoredState("kanban.askBoard.topK", "6");
+  const [blueprintPrompt, setBlueprintPrompt] = useStoredState(
+    "kanban.boardBlueprint.prompt",
+    "Create a project kickoff board for a new product feature launch."
+  );
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(true);
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
@@ -113,6 +119,24 @@ export const App = () => {
   );
 
   const activeBoardId = boardId.trim() ? boardId.trim() : null;
+
+  const invalidateActiveBoard = useCallback(
+    (nextBoardId: string) => {
+      queryClient.invalidateQueries({ queryKey: ["board", nextBoardId] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["lists", nextBoardId] }).catch(() => undefined);
+      queryClient.invalidateQueries({ queryKey: ["cards", nextBoardId] }).catch(() => undefined);
+    },
+    [queryClient]
+  );
+
+  const boardRealtime = useBoardRealtime({
+    supabase,
+    boardId: activeBoardId,
+    presenceKey: authUserId,
+    enabled: Boolean(activeBoardId && authUserId && accessToken),
+    invalidateBoard: invalidateActiveBoard,
+    onError: reportError
+  });
 
   const boardQuery = useQuery({
     queryKey: ["board", activeBoardId],
@@ -227,6 +251,10 @@ export const App = () => {
       if (activeBoardId && ctx?.previous) {
         queryClient.setQueryData(["cards", activeBoardId], ctx.previous);
       }
+      if (activeBoardId && error instanceof ApiError && error.status === 409) {
+        setLastError(`${error.message} (Refreshing board state...)`);
+        invalidateActiveBoard(activeBoardId);
+      }
     },
     onSuccess: (card) => {
       queryClient.setQueryData<Card[]>(["cards", card.boardId], (prev) =>
@@ -255,6 +283,15 @@ export const App = () => {
       window.setTimeout(() => element.classList.remove("card-flash"), 2000);
     }, 0);
   }, []);
+
+  const handleBoardCreatedFromBlueprint = useCallback(
+    (board: Board) => {
+      setBoardId(board.id);
+      setBoardTitle(board.title);
+      queryClient.setQueryData(["board", board.id], board);
+    },
+    [queryClient, setBoardId, setBoardTitle]
+  );
 
   const handleCreateList = () => {
     if (!activeBoardId) {
@@ -406,7 +443,7 @@ export const App = () => {
           >
             Diagnostics
           </button>
-          <span className="badge badge-live">M11</span>
+          <span className="badge badge-live">M14</span>
         </div>
       </header>
 
@@ -459,7 +496,39 @@ export const App = () => {
             <p className="meta">
               Board ID: <span>{boardStatusLine()}</span>
             </p>
+            <div className="realtime-strip" aria-label="Realtime status">
+              <span
+                className={`badge badge-realtime ${
+                  boardRealtime.status === "connected" ? "badge-live" : "badge-realtime-offline"
+                }`}
+              >
+                Realtime: {boardRealtime.status}
+              </span>
+              <span className="meta">
+                Presence: <span>{boardRealtime.onlineUserKeys.length}</span>
+              </span>
+              {boardRealtime.onlineUserKeys.length > 0 ? (
+                <span className="meta">
+                  Here:{" "}
+                  <span>
+                    {boardRealtime.onlineUserKeys
+                      .slice(0, 3)
+                      .map((value) => value.slice(0, 8))
+                      .join(", ")}
+                    {boardRealtime.onlineUserKeys.length > 3 ? "…" : ""}
+                  </span>
+                </span>
+              ) : null}
+            </div>
           </article>
+
+          <BoardBlueprintPanel
+            api={api}
+            prompt={blueprintPrompt}
+            onChangePrompt={setBlueprintPrompt}
+            onBoardCreated={handleBoardCreatedFromBlueprint}
+            onError={(message) => setLastError(message)}
+          />
 
           <article className="panel list-controls">
             <h2>Lists</h2>

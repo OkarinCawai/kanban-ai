@@ -8,6 +8,7 @@ import {
   cardSearchHitSchema,
   cardSummaryResultSchema,
   dailyStandupResultSchema,
+  richTextDocSchema,
   semanticCardSearchResultSchema,
   threadToCardResultSchema,
   weeklyRecapResultSchema,
@@ -63,6 +64,7 @@ type DbCard = {
   list_id: string;
   title: string;
   description: string | null;
+  description_rich_json: unknown;
   start_at: string | Date | null;
   due_at: string | Date | null;
   location_text: string | null;
@@ -197,6 +199,7 @@ const CARD_SELECT_COLUMNS = `
   list_id,
   title,
   description,
+  description_rich_json,
   start_at,
   due_at,
   location_text,
@@ -238,6 +241,11 @@ const parseCardChecklist = (value: unknown): Card["checklist"] => {
   return parsed.success ? parsed.data : [];
 };
 
+const parseRichTextDoc = (value: unknown): Card["descriptionRich"] => {
+  const parsed = richTextDocSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+};
+
 const mapBoard = (row: DbBoard): Board => ({
   id: row.id,
   orgId: row.org_id,
@@ -266,6 +274,7 @@ const mapCard = (row: DbCard): Card => ({
   listId: row.list_id,
   title: row.title,
   description: row.description ?? undefined,
+  descriptionRich: parseRichTextDoc(row.description_rich_json),
   startAt: row.start_at ? toIso(row.start_at) : undefined,
   dueAt: row.due_at ? toIso(row.due_at) : undefined,
   locationText: row.location_text ?? undefined,
@@ -791,18 +800,19 @@ export class PostgresKanbanRepository implements KanbanRepository {
         createCard: async (input) => {
           const result = await client.query<DbCard>(
             `
-              insert into public.cards (
-                id,
-                org_id,
-                board_id,
-                list_id,
-                title,
-                description,
-                start_at,
-                due_at,
-                location_text,
-                location_url,
-                assignee_user_ids,
+	              insert into public.cards (
+	                id,
+	                org_id,
+	                board_id,
+	                list_id,
+	                title,
+	                description,
+	                description_rich_json,
+	                start_at,
+	                due_at,
+	                location_text,
+	                location_url,
+	                assignee_user_ids,
                 labels_json,
                 checklist_json,
                 comment_count,
@@ -812,58 +822,61 @@ export class PostgresKanbanRepository implements KanbanRepository {
                 created_at,
                 updated_at
               )
-              values (
-                $1::uuid,
-                $2::uuid,
-                $3::uuid,
-                $4::uuid,
-                $5,
-                $6,
-                $7::timestamptz,
-                $8::timestamptz,
-                $9,
-                $10,
-                $11::uuid[],
-                $12::jsonb,
-                $13::jsonb,
-                $14::integer,
-                $15::integer,
-                $16,
-                0,
-                $17::timestamptz,
-                $17::timestamptz
-              )
-              returning ${CARD_SELECT_COLUMNS}
-            `,
-            [
-              input.id,
-              input.orgId,
-              input.boardId,
-              input.listId,
-              input.title,
-              input.description ?? null,
-              input.startAt ?? null,
-              input.dueAt ?? null,
-              input.locationText ?? null,
-              input.locationUrl ?? null,
-              input.assigneeUserIds ?? [],
-              JSON.stringify(input.labels ?? []),
-              JSON.stringify(input.checklist ?? []),
-              input.commentCount ?? 0,
-              input.attachmentCount ?? 0,
-              input.position,
-              input.createdAt
-            ]
-          );
+	              values (
+	                $1::uuid,
+	                $2::uuid,
+	                $3::uuid,
+	                $4::uuid,
+	                $5,
+	                $6,
+	                $7::jsonb,
+	                $8::timestamptz,
+	                $9::timestamptz,
+	                $10,
+	                $11,
+	                $12::uuid[],
+	                $13::jsonb,
+	                $14::jsonb,
+	                $15::integer,
+	                $16::integer,
+	                $17,
+	                0,
+	                $18::timestamptz,
+	                $18::timestamptz
+	              )
+	              returning ${CARD_SELECT_COLUMNS}
+	            `,
+	            [
+	              input.id,
+	              input.orgId,
+	              input.boardId,
+	              input.listId,
+	              input.title,
+	              input.description ?? null,
+	              JSON.stringify(input.descriptionRich ?? null),
+	              input.startAt ?? null,
+	              input.dueAt ?? null,
+	              input.locationText ?? null,
+	              input.locationUrl ?? null,
+	              input.assigneeUserIds ?? [],
+	              JSON.stringify(input.labels ?? []),
+	              JSON.stringify(input.checklist ?? []),
+	              input.commentCount ?? 0,
+	              input.attachmentCount ?? 0,
+	              input.position,
+	              input.createdAt
+	            ]
+	          );
           return mapCard(result.rows[0]);
         },
-        updateCard: async (input) => {
-          const titleProvided = hasOwn(input, "title");
-          const descriptionProvided = hasOwn(input, "description");
-          const startAtProvided = hasOwn(input, "startAt");
-          const dueAtProvided = hasOwn(input, "dueAt");
-          const locationTextProvided = hasOwn(input, "locationText");
-          const locationUrlProvided = hasOwn(input, "locationUrl");
+	        updateCard: async (input) => {
+	          const titleProvided = hasOwn(input, "title");
+	          const descriptionProvided = hasOwn(input, "description");
+	          const descriptionRichProvided = hasOwn(input, "descriptionRich");
+	          const startAtProvided = hasOwn(input, "startAt");
+	          const dueAtProvided = hasOwn(input, "dueAt");
+	          const locationTextProvided = hasOwn(input, "locationText");
+	          const locationUrlProvided = hasOwn(input, "locationUrl");
           const assigneeUserIdsProvided = hasOwn(input, "assigneeUserIds");
           const labelsProvided = hasOwn(input, "labels");
           const checklistProvided = hasOwn(input, "checklist");
@@ -872,53 +885,56 @@ export class PostgresKanbanRepository implements KanbanRepository {
 
           const result = await client.query<DbCard>(
             `
-              update public.cards
-              set
-                title = case when $4::boolean then $5 else title end,
-                description = case when $6::boolean then $7 else description end,
-                start_at = case when $8::boolean then $9::timestamptz else start_at end,
-                due_at = case when $10::boolean then $11::timestamptz else due_at end,
-                location_text = case when $12::boolean then $13 else location_text end,
-                location_url = case when $14::boolean then $15 else location_url end,
-                assignee_user_ids = case when $16::boolean then $17::uuid[] else assignee_user_ids end,
-                labels_json = case when $18::boolean then $19::jsonb else labels_json end,
-                checklist_json = case when $20::boolean then $21::jsonb else checklist_json end,
-                comment_count = case when $22::boolean then $23::integer else comment_count end,
-                attachment_count = case when $24::boolean then $25::integer else attachment_count end,
-                version = version + 1,
-                updated_at = $3::timestamptz
-              where id = $1::uuid
-                and version = $2
+	              update public.cards
+	              set
+	                title = case when $4::boolean then $5 else title end,
+	                description = case when $6::boolean then $7 else description end,
+	                description_rich_json = case when $8::boolean then $9::jsonb else description_rich_json end,
+	                start_at = case when $10::boolean then $11::timestamptz else start_at end,
+	                due_at = case when $12::boolean then $13::timestamptz else due_at end,
+	                location_text = case when $14::boolean then $15 else location_text end,
+	                location_url = case when $16::boolean then $17 else location_url end,
+	                assignee_user_ids = case when $18::boolean then $19::uuid[] else assignee_user_ids end,
+	                labels_json = case when $20::boolean then $21::jsonb else labels_json end,
+	                checklist_json = case when $22::boolean then $23::jsonb else checklist_json end,
+	                comment_count = case when $24::boolean then $25::integer else comment_count end,
+	                attachment_count = case when $26::boolean then $27::integer else attachment_count end,
+	                version = version + 1,
+	                updated_at = $3::timestamptz
+	              where id = $1::uuid
+	                and version = $2
               returning ${CARD_SELECT_COLUMNS}
             `,
             [
               input.cardId,
               input.expectedVersion,
               input.updatedAt,
-              titleProvided,
-              input.title ?? null,
-              descriptionProvided,
-              input.description ?? null,
-              startAtProvided,
-              input.startAt ?? null,
-              dueAtProvided,
-              input.dueAt ?? null,
-              locationTextProvided,
-              input.locationText ?? null,
-              locationUrlProvided,
-              input.locationUrl ?? null,
-              assigneeUserIdsProvided,
-              input.assigneeUserIds ?? [],
-              labelsProvided,
-              JSON.stringify(input.labels ?? []),
-              checklistProvided,
-              JSON.stringify(input.checklist ?? []),
-              commentCountProvided,
-              input.commentCount ?? 0,
-              attachmentCountProvided,
-              input.attachmentCount ?? 0
-            ]
-          );
+	              titleProvided,
+	              input.title ?? null,
+	              descriptionProvided,
+	              input.description ?? null,
+	              descriptionRichProvided,
+	              JSON.stringify(input.descriptionRich ?? null),
+	              startAtProvided,
+	              input.startAt ?? null,
+	              dueAtProvided,
+	              input.dueAt ?? null,
+	              locationTextProvided,
+	              input.locationText ?? null,
+	              locationUrlProvided,
+	              input.locationUrl ?? null,
+	              assigneeUserIdsProvided,
+	              input.assigneeUserIds ?? [],
+	              labelsProvided,
+	              JSON.stringify(input.labels ?? []),
+	              checklistProvided,
+	              JSON.stringify(input.checklist ?? []),
+	              commentCountProvided,
+	              input.commentCount ?? 0,
+	              attachmentCountProvided,
+	              input.attachmentCount ?? 0
+	            ]
+	          );
 
           if (result.rowCount !== 1 || !result.rows[0]) {
             throw new ConflictError("Card version is stale.");

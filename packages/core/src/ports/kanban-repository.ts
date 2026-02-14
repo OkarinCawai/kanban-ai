@@ -16,6 +16,7 @@ import type {
   DailyStandupResult,
   WeeklyRecapResult,
   SemanticCardSearchResult,
+  RichTextDoc,
   ThreadToCardDraft,
   ThreadToCardResult
 } from "@kanban/contracts";
@@ -58,6 +59,7 @@ export interface CreateCardParams {
   listId: string;
   title: string;
   description?: string;
+  descriptionRich?: RichTextDoc;
   startAt?: string;
   dueAt?: string;
   locationText?: string;
@@ -75,6 +77,7 @@ export interface UpdateCardParams {
   cardId: string;
   title?: string;
   description?: string | null;
+  descriptionRich?: RichTextDoc | null;
   startAt?: string | null;
   dueAt?: string | null;
   locationText?: string | null;

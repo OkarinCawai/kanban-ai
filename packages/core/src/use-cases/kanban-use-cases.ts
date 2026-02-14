@@ -1,6 +1,7 @@
 import {
   type CardChecklistItem,
   type CardLabel,
+  type RichTextDoc,
   createBoardInputSchema,
   createCardInputSchema,
   createListInputSchema,
@@ -145,6 +146,109 @@ const normalizeChecklist = (
   return normalized;
 };
 
+type CardDescriptionDraft = {
+  description?: string | null;
+  descriptionRich?: RichTextDoc | null;
+};
+
+const plainTextToRichTextDoc = (value: string): RichTextDoc => {
+  const lines = value.replace(/\r\n/g, "\n").split(/\n/);
+  const content = lines.map((line) => {
+    if (!line) {
+      return { type: "paragraph" };
+    }
+
+    return {
+      type: "paragraph",
+      content: [{ type: "text", text: line }]
+    };
+  });
+
+  return { type: "doc", content } as RichTextDoc;
+};
+
+const richTextDocToPlainText = (doc: RichTextDoc): string => {
+  const parts: string[] = [];
+
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== "object") {
+      return;
+    }
+
+    const typed = node as { type?: unknown; text?: unknown; content?: unknown };
+    if (typed.type === "text") {
+      if (typeof typed.text === "string") {
+        parts.push(typed.text);
+      }
+      return;
+    }
+
+    if (typed.type === "hardBreak") {
+      parts.push("\n");
+      return;
+    }
+
+    if (Array.isArray(typed.content)) {
+      for (const child of typed.content) {
+        walk(child);
+      }
+    }
+
+    if (
+      typed.type === "paragraph" ||
+      typed.type === "heading" ||
+      typed.type === "listItem" ||
+      typed.type === "codeBlock" ||
+      typed.type === "blockquote"
+    ) {
+      parts.push("\n");
+    }
+  };
+
+  walk(doc);
+
+  return parts
+    .join("")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
+const resolveCardDescription = (input: CardDescriptionDraft): CardDescriptionDraft => {
+  if (input.descriptionRich !== undefined) {
+    if (input.descriptionRich === null) {
+      return { description: null, descriptionRich: null };
+    }
+
+    const plain = richTextDocToPlainText(input.descriptionRich);
+    const nextPlain = plain ? plain.slice(0, 10_000) : "";
+    if (plain.length > 10_000) {
+      throw new ValidationError("Description is too long.");
+    }
+
+    return {
+      description: nextPlain ? nextPlain : null,
+      descriptionRich: plain ? input.descriptionRich : null
+    };
+  }
+
+  if (input.description !== undefined) {
+    if (input.description === null) {
+      return { description: null, descriptionRich: null };
+    }
+
+    const trimmed = input.description.trim();
+    if (!trimmed) {
+      return { description: null, descriptionRich: null };
+    }
+
+    const rich = plainTextToRichTextDoc(trimmed);
+    return { description: trimmed, descriptionRich: rich };
+  }
+
+  return {};
+};
+
 export class KanbanUseCases {
   constructor(private readonly deps: KanbanUseCaseDeps) {}
 
@@ -241,6 +345,10 @@ export class KanbanUseCases {
     const now = this.deps.clock.nowIso();
     const cardId = this.deps.idGenerator.next("card");
     const eventId = this.deps.idGenerator.next("evt");
+    const resolvedDescription = resolveCardDescription({
+      description: parsed.description,
+      descriptionRich: parsed.descriptionRich
+    });
 
     return this.deps.repository.runInTransaction(async (tx) => {
       const card = await tx.createCard({
@@ -249,7 +357,8 @@ export class KanbanUseCases {
         boardId: list.boardId,
         listId: list.id,
         title: parsed.title,
-        description: parsed.description,
+        description: resolvedDescription.description ?? undefined,
+        descriptionRich: resolvedDescription.descriptionRich ?? undefined,
         startAt: parsed.startAt,
         dueAt: parsed.dueAt,
         locationText: parsed.locationText,
@@ -316,8 +425,16 @@ export class KanbanUseCases {
       if ("title" in parsed) {
         updateInput.title = parsed.title;
       }
-      if ("description" in parsed) {
-        updateInput.description = parsed.description;
+      if ("descriptionRich" in parsed || "description" in parsed) {
+        const resolved = resolveCardDescription({
+          description: "description" in parsed ? parsed.description : undefined,
+          descriptionRich: "descriptionRich" in parsed ? parsed.descriptionRich : undefined
+        });
+
+        if ("description" in parsed || "descriptionRich" in parsed) {
+          updateInput.description = resolved.description ?? null;
+          updateInput.descriptionRich = resolved.descriptionRich ?? null;
+        }
       }
       if ("startAt" in parsed) {
         updateInput.startAt = parsed.startAt;
