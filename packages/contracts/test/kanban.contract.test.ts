@@ -34,11 +34,18 @@ import {
   weeklyRecapOutputSchema,
   dailyStandupOutputSchema,
   moveCardInputSchema,
+  aiCardBreakdownRequestedPayloadSchema,
   queueCardCoverInputSchema,
   queueBoardBlueprintInputSchema,
+  aiCardTriageRequestedPayloadSchema,
   queueWeeklyRecapInputSchema,
   queueDailyStandupInputSchema,
+  cardBreakdownSuggestionResultSchema,
+  cardTriageSuggestionResultSchema,
+  geminiCardBreakdownOutputSchema,
   outboxEventSchema,
+  geminiCardTriageOutputSchema,
+  queueCardBreakdownInputSchema,
   queueThreadToCardInputSchema,
   queueCardSummaryInputSchema,
   coverJobAcceptedSchema,
@@ -163,6 +170,9 @@ test("contracts: validates ai queue inputs and accepted response", () => {
   const summarize = queueCardSummaryInputSchema.parse({
     reason: "Prioritize blockers."
   });
+  const breakdownQueue = queueCardBreakdownInputSchema.parse({
+    focus: "Ship it with minimal risk."
+  });
   const ask = askBoardInputSchema.parse({
     boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
     question: "What is blocking release?",
@@ -215,6 +225,43 @@ test("contracts: validates ai queue inputs and accepted response", () => {
     queuedAt: new Date().toISOString()
   });
 
+  const triagePayload = aiCardTriageRequestedPayloadSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    cardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    actorUserId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43"
+  });
+
+  const breakdownPayload = aiCardBreakdownRequestedPayloadSchema.parse({
+    jobId: "f73b2d5c-a0b9-4d34-a17c-8fbac4b2ec8a",
+    cardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    actorUserId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
+    focus: breakdownQueue.focus
+  });
+
+  const triageOutput = geminiCardTriageOutputSchema.parse({
+    labels: [{ name: "urgent", color: "red" }],
+    assigneeUserIds: ["fd0180e4-9ea2-4b5c-9849-cecc65c4ed43"],
+    dueAt: "2026-02-14T10:00:00.000Z"
+  });
+
+  const breakdownOutput = geminiCardBreakdownOutputSchema.parse({
+    checklist: [{ title: "Draft an implementation plan" }]
+  });
+
+  const triageResult = cardTriageSuggestionResultSchema.parse({
+    cardId: triagePayload.cardId,
+    jobId: triagePayload.jobId,
+    status: "completed",
+    suggestions: triageOutput
+  });
+
+  const breakdownResult = cardBreakdownSuggestionResultSchema.parse({
+    cardId: breakdownPayload.cardId,
+    jobId: breakdownPayload.jobId,
+    status: "completed",
+    breakdown: breakdownOutput
+  });
+
   const threadQueue = queueThreadToCardInputSchema.parse({
     boardId: "fd0180e4-9ea2-4b5c-9849-cecc65c4ed43",
     listId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
@@ -227,6 +274,7 @@ test("contracts: validates ai queue inputs and accepted response", () => {
   });
 
   assert.equal(summarize.reason, "Prioritize blockers.");
+  assert.equal(breakdownQueue.focus, "Ship it with minimal risk.");
   assert.equal(ask.topK, 6);
   assert.equal(boardBlueprintQueue.prompt, "Generate a simple product launch board.");
   assert.equal(recap.lookbackDays, 7);
@@ -234,6 +282,8 @@ test("contracts: validates ai queue inputs and accepted response", () => {
   assert.equal(recapResult.recap?.summary, "Week recap summary");
   assert.equal(standupResult.standup?.today.length, 1);
   assert.equal(accepted.status, "queued");
+  assert.equal(triageResult.suggestions?.labels?.[0]?.name, "urgent");
+  assert.equal(breakdownResult.breakdown?.checklist?.length, 1);
   assert.equal(threadQueue.sourceThreadId, "789");
 });
 

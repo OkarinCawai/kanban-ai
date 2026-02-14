@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { richTextDocSchema, type Card, type RichTextDoc } from "@kanban/contracts";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  richTextDocSchema,
+  type Card,
+  type CardBreakdownSuggestionResult,
+  type CardChecklistItem,
+  type CardLabelColor,
+  type CardTriageSuggestionResult,
+  type RichTextDoc
+} from "@kanban/contracts";
 import { EditorContent, useEditor } from "@tiptap/react";
 import Placeholder from "@tiptap/extension-placeholder";
 import StarterKit from "@tiptap/starter-kit";
@@ -51,6 +59,7 @@ export const CardDetailPanel = (props: CardDetailPanelProps) => {
   const [detailChecklist, setDetailChecklist] = useState("");
   const [detailCommentCount, setDetailCommentCount] = useState("0");
   const [detailAttachmentCount, setDetailAttachmentCount] = useState("0");
+  const [breakdownFocus, setBreakdownFocus] = useState("");
 
   const emptyDoc: RichTextDoc = useMemo(
     () => ({
@@ -213,6 +222,132 @@ export const CardDetailPanel = (props: CardDetailPanelProps) => {
   };
 
   const card = props.selectedCard;
+
+  const triageQuery = useQuery<CardTriageSuggestionResult>({
+    queryKey: ["card-triage", card?.id ?? "none"],
+    enabled: Boolean(card),
+    queryFn: async () => props.api.getCardTriageSuggestion(card!.id),
+    retry: false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "processing" ? 1500 : false;
+    }
+  });
+
+  const breakdownQuery = useQuery<CardBreakdownSuggestionResult>({
+    queryKey: ["card-breakdown", card?.id ?? "none"],
+    enabled: Boolean(card),
+    queryFn: async () => props.api.getCardBreakdownSuggestion(card!.id),
+    retry: false,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === "queued" || status === "processing" ? 1500 : false;
+    }
+  });
+
+  const queueBreakdownMutation = useMutation({
+    mutationFn: async () => {
+      if (!card) {
+        throw new Error("Select a card before running breakdown.");
+      }
+      return props.api.queueCardBreakdown(card.id, breakdownFocus.trim() ? { focus: breakdownFocus.trim() } : {});
+    },
+    onSuccess: () => {
+      if (!card) return;
+      queryClient.invalidateQueries({ queryKey: ["card-breakdown", card.id] }).catch(() => undefined);
+    },
+    onError: (error) => {
+      props.onError(error instanceof Error ? error.message : String(error));
+    }
+  });
+
+  const applyTriageSuggestions = async () => {
+    if (!card) {
+      props.onError("Select a card before applying suggestions.");
+      return;
+    }
+
+    const suggestions = triageQuery.data?.suggestions;
+    if (!suggestions) {
+      props.onError("No suggestions are ready yet.");
+      return;
+    }
+
+    const patch: Record<string, unknown> = { expectedVersion: card.version };
+
+    if (suggestions.labels) {
+      const existing = card.labels ?? [];
+      const seen = new Set(existing.map((label) => `${label.name.trim().toLowerCase()}::${label.color}`));
+      const merged: Array<{ id?: string; name: string; color: CardLabelColor }> = [...existing];
+
+      for (const next of suggestions.labels) {
+        const key = `${next.name.trim().toLowerCase()}::${next.color}`;
+        if (seen.has(key)) continue;
+        merged.push({ name: next.name, color: next.color });
+        seen.add(key);
+      }
+
+      patch.labels = merged;
+    }
+
+    if (suggestions.assigneeUserIds) {
+      const existing = card.assigneeUserIds ?? [];
+      const merged = Array.from(new Set([...existing, ...suggestions.assigneeUserIds]));
+      patch.assigneeUserIds = merged;
+    }
+
+    if (suggestions.startAt) {
+      patch.startAt = suggestions.startAt;
+    }
+
+    if (suggestions.dueAt) {
+      patch.dueAt = suggestions.dueAt;
+    }
+
+    const updated = await updateCardMutation.mutateAsync({ cardId: card.id, patch });
+    hydrateFromCard(updated);
+  };
+
+  const applyBreakdownChecklist = async () => {
+    if (!card) {
+      props.onError("Select a card before applying breakdown.");
+      return;
+    }
+
+    const proposal = breakdownQuery.data?.breakdown;
+    const suggested = proposal?.checklist ?? [];
+    if (suggested.length === 0) {
+      props.onError("No checklist suggestions are ready yet.");
+      return;
+    }
+
+    const existing = card.checklist ?? [];
+    const seen = new Set(existing.map((item) => item.title.trim().toLowerCase()));
+    const maxPosition = existing.reduce((max, item) => (item.position > max ? item.position : max), -1024);
+
+    const merged: CardChecklistItem[] = [...existing];
+    let nextPosition = maxPosition;
+
+    for (const item of suggested) {
+      const title = item.title.trim();
+      if (!title) continue;
+      const key = title.toLowerCase();
+      if (seen.has(key)) continue;
+
+      nextPosition += 1024;
+      merged.push({
+        id: crypto.randomUUID(),
+        title,
+        isDone: false,
+        position: nextPosition
+      });
+      seen.add(key);
+    }
+
+    const patch: Record<string, unknown> = { expectedVersion: card.version, checklist: merged };
+    const updated = await updateCardMutation.mutateAsync({ cardId: card.id, patch });
+    hydrateFromCard(updated);
+  };
 
   return (
     <article className="panel card-detail-panel">
@@ -396,6 +531,133 @@ export const CardDetailPanel = (props: CardDetailPanelProps) => {
           </button>
         </div>
       </form>
+
+      <section className="agent-shell" aria-label="Agent Suggestions">
+        <h3>Agent Suggestions</h3>
+        <div className="agent-grid">
+          <div className="agent-box">
+            <div className="agent-head">
+              <div>
+                <div className="agent-title">Auto-triage</div>
+                <div className="agent-subtitle">Labels, assignees, dates. Suggestions only.</div>
+              </div>
+              <span
+                className={`status-chip status-${triageQuery.data?.status ?? "idle"}`}
+                aria-label={`Triage status ${triageQuery.data?.status ?? "idle"}`}
+              >
+                {triageQuery.isLoading ? "loading" : (triageQuery.data?.status ?? "idle")}
+              </span>
+            </div>
+
+            {triageQuery.error instanceof ApiError && triageQuery.error.status === 404 ? (
+              <p className="job-text">No triage job found yet. Create a new card to trigger it.</p>
+            ) : triageQuery.isError ? (
+              <p className="job-text">Triage error: {triageQuery.error instanceof Error ? triageQuery.error.message : String(triageQuery.error)}</p>
+            ) : triageQuery.data?.status === "failed" ? (
+              <p className="job-text">Triage failed: {triageQuery.data.failureReason ?? "Unknown failure."}</p>
+            ) : triageQuery.data?.status === "completed" && triageQuery.data.suggestions ? (
+              <div className="agent-body">
+                {triageQuery.data.suggestions.note ? (
+                  <p className="job-text">{triageQuery.data.suggestions.note}</p>
+                ) : null}
+                {triageQuery.data.suggestions.labels && triageQuery.data.suggestions.labels.length > 0 ? (
+                  <div className="card-badges" aria-label="Suggested labels">
+                    {triageQuery.data.suggestions.labels.map((label) => (
+                      <span
+                        key={`${label.name}:${label.color}`}
+                        className={`meta-badge badge-label badge-label-${label.color}`}
+                      >
+                        {label.name}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="agent-kv">
+                  <div className="agent-kv-row">
+                    <span>Assignees</span>
+                    <span>{(triageQuery.data.suggestions.assigneeUserIds ?? []).join(", ") || "(none)"}</span>
+                  </div>
+                  <div className="agent-kv-row">
+                    <span>Start</span>
+                    <span>{triageQuery.data.suggestions.startAt ?? "(none)"}</span>
+                  </div>
+                  <div className="agent-kv-row">
+                    <span>Due</span>
+                    <span>{triageQuery.data.suggestions.dueAt ?? "(none)"}</span>
+                  </div>
+                </div>
+                <div className="inline top-gap">
+                  <button type="button" onClick={() => void applyTriageSuggestions()} disabled={!card}>
+                    Apply Suggestions
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="job-text">Waiting for triage suggestions…</p>
+            )}
+          </div>
+
+          <div className="agent-box">
+            <div className="agent-head">
+              <div>
+                <div className="agent-title">Break Down With AI</div>
+                <div className="agent-subtitle">Propose a checklist you can apply.</div>
+              </div>
+              <span
+                className={`status-chip status-${breakdownQuery.data?.status ?? "idle"}`}
+                aria-label={`Breakdown status ${breakdownQuery.data?.status ?? "idle"}`}
+              >
+                {breakdownQuery.isLoading ? "loading" : (breakdownQuery.data?.status ?? "idle")}
+              </span>
+            </div>
+
+            <div className="agent-body">
+              <label className="agent-focus">
+                Focus (optional)
+                <input
+                  value={breakdownFocus}
+                  onChange={(e) => setBreakdownFocus(e.target.value)}
+                  disabled={!card || queueBreakdownMutation.isPending}
+                />
+              </label>
+              <div className="inline top-gap">
+                <button
+                  type="button"
+                  onClick={() => void queueBreakdownMutation.mutateAsync()}
+                  disabled={!card || queueBreakdownMutation.isPending}
+                >
+                  {queueBreakdownMutation.isPending ? "Queuing…" : "Generate Checklist"}
+                </button>
+              </div>
+
+              {breakdownQuery.error instanceof ApiError && breakdownQuery.error.status === 404 ? (
+                <p className="job-text">No breakdown job queued yet.</p>
+              ) : breakdownQuery.isError ? (
+                <p className="job-text">
+                  Breakdown error: {breakdownQuery.error instanceof Error ? breakdownQuery.error.message : String(breakdownQuery.error)}
+                </p>
+              ) : breakdownQuery.data?.status === "failed" ? (
+                <p className="job-text">Breakdown failed: {breakdownQuery.data.failureReason ?? "Unknown failure."}</p>
+              ) : breakdownQuery.data?.status === "completed" && breakdownQuery.data.breakdown ? (
+                <div className="agent-checklist">
+                  <ul className="agent-list">
+                    {breakdownQuery.data.breakdown.checklist.map((item) => (
+                      <li key={item.title}>{item.title}</li>
+                    ))}
+                  </ul>
+                  <div className="inline top-gap">
+                    <button type="button" onClick={() => void applyBreakdownChecklist()} disabled={!card}>
+                      Apply Checklist Items
+                    </button>
+                  </div>
+                </div>
+              ) : breakdownQuery.data?.status === "queued" || breakdownQuery.data?.status === "processing" ? (
+                <p className="job-text">Generating checklist…</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
     </article>
   );
 };

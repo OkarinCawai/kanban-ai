@@ -81,6 +81,14 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findCardTriageSuggestionByCardId(_cardId: string): Promise<null> {
+    return null;
+  }
+
+  async findCardBreakdownSuggestionByCardId(_cardId: string): Promise<null> {
+    return null;
+  }
+
   async listListsByBoardId(_boardId: string): Promise<KanbanList[]> {
     return [];
   }
@@ -149,6 +157,12 @@ class FakeRepository implements KanbanRepository {
         });
       },
       upsertThreadCardExtraction: async () => {
+        // Not used.
+      },
+      upsertCardTriageSuggestion: async () => {
+        // Not used.
+      },
+      upsertCardBreakdownSuggestion: async () => {
         // Not used.
       },
       appendOutbox: async (event) => {

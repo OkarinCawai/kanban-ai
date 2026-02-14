@@ -3,6 +3,7 @@ import { boardSchema, cardLabelColorSchema } from "./kanban.js";
 
 const nonEmptyString = z.string().trim().min(1);
 const uuidString = z.string().uuid();
+const isoDateTimeString = z.string().datetime({ offset: true });
 
 export const queueCardSummaryInputSchema = z.object({
   reason: z.string().trim().max(500).optional()
@@ -28,14 +29,20 @@ export const queueBoardBlueprintInputSchema = z.object({
   prompt: nonEmptyString.max(4_000)
 });
 
+export const queueCardBreakdownInputSchema = z.object({
+  focus: z.string().trim().max(500).optional()
+});
+
 export const aiEventTypeSchema = z.enum([
   "ai.card-summary.requested",
+  "ai.card-triage.requested",
   "ai.ask-board.requested",
   "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
-  "ai.card-semantic-search.requested"
+  "ai.card-semantic-search.requested",
+  "ai.card-breakdown.requested"
 ]);
 
 export const aiJobStatusSchema = z.enum([
@@ -57,6 +64,12 @@ export const aiCardSummaryRequestedPayloadSchema = z.object({
   cardId: uuidString,
   actorUserId: uuidString,
   reason: z.string().trim().max(500).optional()
+});
+
+export const aiCardTriageRequestedPayloadSchema = z.object({
+  jobId: uuidString,
+  cardId: uuidString,
+  actorUserId: uuidString
 });
 
 export const aiAskBoardRequestedPayloadSchema = z.object({
@@ -122,6 +135,24 @@ export const aiDailyStandupRequestedPayloadSchema = z.object({
   periodEnd: z.string(),
   styleHint: z.string().trim().max(200).optional()
 });
+
+export const aiCardBreakdownRequestedPayloadSchema = z.object({
+  jobId: uuidString,
+  cardId: uuidString,
+  actorUserId: uuidString,
+  focus: z.string().trim().max(500).optional()
+});
+
+const ensureDueAfterStart = (
+  startAt: string | undefined,
+  dueAt: string | undefined
+): boolean => {
+  if (!startAt || !dueAt) {
+    return true;
+  }
+
+  return new Date(dueAt).valueOf() >= new Date(startAt).valueOf();
+};
 
 export const geminiCardSummaryOutputSchema = z.object({
   summary: nonEmptyString.max(4_000),
@@ -199,6 +230,28 @@ export const threadToCardChecklistItemSchema = z.object({
 export const threadToCardLabelSchema = z.object({
   name: nonEmptyString.max(48),
   color: cardLabelColorSchema
+});
+
+export const geminiCardTriageOutputSchema = z
+  .object({
+    labels: z.array(threadToCardLabelSchema).max(12).optional(),
+    assigneeUserIds: z.array(uuidString).max(10).optional(),
+    startAt: isoDateTimeString.optional(),
+    dueAt: isoDateTimeString.optional(),
+    note: z.string().trim().max(800).optional()
+  })
+  .superRefine((value, ctx) => {
+    if (!ensureDueAfterStart(value.startAt, value.dueAt)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Due date must be equal or later than start date.",
+        path: ["dueAt"]
+      });
+    }
+  });
+
+export const geminiCardBreakdownOutputSchema = z.object({
+  checklist: z.array(threadToCardChecklistItemSchema).min(1).max(80)
 });
 
 export const boardBlueprintCardSchema = z.object({
@@ -409,16 +462,70 @@ export const dailyStandupResultSchema = z
     }
   });
 
+export const cardTriageSuggestionResultSchema = z
+  .object({
+    cardId: uuidString,
+    jobId: uuidString,
+    status: aiJobStatusSchema,
+    suggestions: geminiCardTriageOutputSchema.optional(),
+    failureReason: z.string().max(1_000).optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.suggestions) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed triage results must include suggestions payload."
+      });
+    }
+
+    if (value.status === "failed" && !value.failureReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Failed triage results must include failureReason."
+      });
+    }
+  });
+
+export const cardBreakdownSuggestionResultSchema = z
+  .object({
+    cardId: uuidString,
+    jobId: uuidString,
+    status: aiJobStatusSchema,
+    breakdown: geminiCardBreakdownOutputSchema.optional(),
+    failureReason: z.string().max(1_000).optional(),
+    updatedAt: z.string().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.status === "completed" && !value.breakdown) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Completed breakdown results must include breakdown payload."
+      });
+    }
+
+    if (value.status === "failed" && !value.failureReason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Failed breakdown results must include failureReason."
+      });
+    }
+  });
+
 export type QueueCardSummaryInput = z.infer<typeof queueCardSummaryInputSchema>;
 export type AskBoardInput = z.infer<typeof askBoardInputSchema>;
 export type QueueWeeklyRecapInput = z.infer<typeof queueWeeklyRecapInputSchema>;
 export type QueueDailyStandupInput = z.infer<typeof queueDailyStandupInputSchema>;
 export type QueueBoardBlueprintInput = z.infer<typeof queueBoardBlueprintInputSchema>;
+export type QueueCardBreakdownInput = z.infer<typeof queueCardBreakdownInputSchema>;
 export type AiEventType = z.infer<typeof aiEventTypeSchema>;
 export type AiJobStatus = z.infer<typeof aiJobStatusSchema>;
 export type AiJobAccepted = z.infer<typeof aiJobAcceptedSchema>;
 export type AiCardSummaryRequestedPayload = z.infer<
   typeof aiCardSummaryRequestedPayloadSchema
+>;
+export type AiCardTriageRequestedPayload = z.infer<
+  typeof aiCardTriageRequestedPayloadSchema
 >;
 export type AiAskBoardRequestedPayload = z.infer<
   typeof aiAskBoardRequestedPayloadSchema
@@ -439,6 +546,11 @@ export type AiWeeklyRecapRequestedPayload = z.infer<
 export type AiDailyStandupRequestedPayload = z.infer<
   typeof aiDailyStandupRequestedPayloadSchema
 >;
+export type AiCardBreakdownRequestedPayload = z.infer<
+  typeof aiCardBreakdownRequestedPayloadSchema
+>;
+export type GeminiCardTriageOutput = z.infer<typeof geminiCardTriageOutputSchema>;
+export type GeminiCardBreakdownOutput = z.infer<typeof geminiCardBreakdownOutputSchema>;
 export type GeminiCardSummaryOutput = z.infer<typeof geminiCardSummaryOutputSchema>;
 export type GeminiAskBoardModelOutput = z.infer<typeof geminiAskBoardModelOutputSchema>;
 export type GeminiAskBoardOutput = z.infer<typeof geminiAskBoardOutputSchema>;
@@ -450,6 +562,10 @@ export type CardSummaryResult = z.infer<typeof cardSummaryResultSchema>;
 export type AskBoardResult = z.infer<typeof askBoardResultSchema>;
 export type WeeklyRecapResult = z.infer<typeof weeklyRecapResultSchema>;
 export type DailyStandupResult = z.infer<typeof dailyStandupResultSchema>;
+export type CardTriageSuggestionResult = z.infer<typeof cardTriageSuggestionResultSchema>;
+export type CardBreakdownSuggestionResult = z.infer<
+  typeof cardBreakdownSuggestionResultSchema
+>;
 export type ThreadToCardDraft = z.infer<typeof threadToCardDraftSchema>;
 export type ThreadToCardResult = z.infer<typeof threadToCardResultSchema>;
 export type ConfirmThreadToCardInput = z.infer<typeof confirmThreadToCardInputSchema>;

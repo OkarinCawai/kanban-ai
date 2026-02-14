@@ -723,6 +723,104 @@ button:focus-visible {
   resize: vertical;
 }
 
+.agent-shell {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 2px dashed var(--line-soft);
+  display: grid;
+  gap: 10px;
+}
+
+.agent-shell h3 {
+  margin: 0;
+  font-size: 13px;
+  font-family: "Bowlby One SC", "Impact", sans-serif;
+  letter-spacing: 0.7px;
+}
+
+.agent-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.agent-box {
+  border: 2px solid var(--line-heavy);
+  background: var(--paper-dense);
+  box-shadow: var(--shadow-soft);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.agent-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.agent-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.agent-subtitle {
+  margin-top: 2px;
+  color: var(--ink-soft);
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.agent-body {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-kv {
+  border-top: 1px dashed var(--line-soft);
+  padding-top: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.agent-kv-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.agent-kv-row span:first-child {
+  font-family: "IBM Plex Mono", "Consolas", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--ink-soft);
+}
+
+.agent-focus input {
+  width: 100%;
+}
+
+.agent-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+@media (max-width: 900px) {
+  .agent-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .rich-field {
   display: grid;
   gap: 6px;

@@ -368,6 +368,9 @@ const callApiAsUser = async (args) => {
 const verifyM2CommandBridge = async (args) => {
   const { client, token, probeRow } = args;
   const discordUserId = String(probeRow.discord_user_id);
+  const userId = String(probeRow.user_id);
+  const orgId = String(probeRow.org_id);
+  const role = String(probeRow.role);
   const guildId = String(probeRow.guild_id);
   const channelId = String(probeRow.channel_id);
   const defaultListId = String(probeRow.default_list_id);
@@ -432,6 +435,107 @@ const verifyM2CommandBridge = async (args) => {
     }
 
     pass("m2-card-move", "Discord /card move bridge moved the probe card.");
+
+    const geminiApiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!geminiApiKey) {
+      warn("m15-agents", "GEMINI_API_KEY is not set; skipping live M15 agent verification.");
+      return;
+    }
+
+    const triageDeadline = Date.now() + 60_000;
+    let triagePayload = null;
+    let triageAttempt = 0;
+
+    while (Date.now() < triageDeadline) {
+      triageAttempt += 1;
+      const triage = await callApiAsUser({
+        path: `/cards/${createdCardId}/triage`,
+        method: "GET",
+        userId,
+        orgId,
+        role
+      });
+
+      if (triage.status === 200 && triage.payload?.status === "completed" && triage.payload?.suggestions) {
+        triagePayload = triage.payload;
+        break;
+      }
+
+      if (triage.status === 200 && triage.payload?.status === "failed") {
+        fail(
+          "m15-triage",
+          `Card triage job failed (attempt ${triageAttempt}). failureReason=${String(
+            triage.payload?.failureReason ?? "(missing)"
+          )}`
+        );
+        return;
+      }
+
+      await sleep(1250);
+    }
+
+    if (!triagePayload) {
+      fail("m15-triage", "Timed out waiting for triage suggestions to complete.");
+      return;
+    }
+
+    pass("m15-triage", "Card triage suggestions completed.");
+
+    const queued = await callApiAsUser({
+      path: `/cards/${createdCardId}/breakdown`,
+      method: "POST",
+      userId,
+      orgId,
+      role,
+      body: {
+        focus: "Verification probe: generate a short checklist for next actions."
+      }
+    });
+
+    if (queued.status !== 201 || queued.payload?.eventType !== "ai.card-breakdown.requested") {
+      fail(
+        "m15-breakdown-queue",
+        `Expected 201 + ai.card-breakdown.requested response, got status ${queued.status}.`
+      );
+      return;
+    }
+
+    pass("m15-breakdown-queue", "Breakdown job queued.");
+
+    const breakdownDeadline = Date.now() + 70_000;
+    let breakdownAttempt = 0;
+
+    while (Date.now() < breakdownDeadline) {
+      breakdownAttempt += 1;
+      const breakdown = await callApiAsUser({
+        path: `/cards/${createdCardId}/breakdown`,
+        method: "GET",
+        userId,
+        orgId,
+        role,
+        timeoutMs: 12_000
+      });
+
+      const checklist = breakdown.payload?.breakdown?.checklist;
+      if (breakdown.status === 200 && breakdown.payload?.status === "completed" && Array.isArray(checklist) && checklist.length > 0) {
+        pass("m15-breakdown-status", `Breakdown completed with ${checklist.length} checklist items.`);
+        return;
+      }
+
+      if (breakdown.status === 200 && breakdown.payload?.status === "failed") {
+        fail(
+          "m15-breakdown-status",
+          `Breakdown job failed (attempt ${breakdownAttempt}). failureReason=${String(
+            breakdown.payload?.failureReason ?? "(missing)"
+          )}`
+        );
+        return;
+      }
+
+      await sleep(1500);
+    }
+
+    fail("m15-breakdown-status", "Timed out waiting for breakdown suggestions to complete.");
   } finally {
     await client.query("delete from public.cards where id = $1::uuid", [createdCardId]);
   }

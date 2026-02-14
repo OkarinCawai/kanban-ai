@@ -1,13 +1,17 @@
 import {
   boardBlueprintSchema,
   geminiAskBoardModelOutputSchema,
+  geminiCardBreakdownOutputSchema,
   geminiCardSummaryOutputSchema,
+  geminiCardTriageOutputSchema,
   geminiCoverSpecOutputSchema,
   geminiThreadToCardOutputSchema,
   weeklyRecapOutputSchema,
   dailyStandupOutputSchema,
   type GeminiAskBoardModelOutput,
+  type GeminiCardBreakdownOutput,
   type GeminiCardSummaryOutput,
+  type GeminiCardTriageOutput,
   type BoardBlueprint,
   type CoverSpec,
   type WeeklyRecapOutput,
@@ -55,6 +59,19 @@ export interface GenerateCardSummaryInput {
   cardTitle: string;
   cardDescription?: string;
   reason?: string;
+}
+
+export interface GenerateCardTriageSuggestionsInput {
+  cardTitle: string;
+  cardDescription?: string;
+  actorUserId: string;
+  nowIso: string;
+}
+
+export interface GenerateCardBreakdownInput {
+  cardTitle: string;
+  cardDescription?: string;
+  focus?: string;
 }
 
 export interface GenerateAskBoardAnswerInput {
@@ -258,6 +275,59 @@ const normalizeThreadToCardCandidate = (candidate: unknown): unknown => {
   return result;
 };
 
+const normalizeDateTimeCandidate = (value: unknown): unknown => {
+  if (typeof value !== "string") {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return value;
+  }
+
+  // Allow YYYY-MM-DD by anchoring it to a consistent time in UTC.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T17:00:00.000Z`;
+  }
+
+  // If timezone is already present, keep it.
+  if (/[zZ]$/.test(trimmed) || /[+-]\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // If model returns an ISO datetime without offset, treat it as UTC.
+  if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+    return `${trimmed}Z`;
+  }
+
+  return trimmed;
+};
+
+const normalizeCardTriageCandidate = (candidate: unknown): unknown => {
+  const normalized = normalizeThreadToCardCandidate(candidate);
+  if (!normalized || typeof normalized !== "object") {
+    return normalized;
+  }
+
+  const result: Record<string, unknown> = { ...(normalized as Record<string, unknown>) };
+
+  const assignees = result.assigneeUserIds;
+  if (typeof assignees === "string") {
+    const trimmed = assignees.trim();
+    result.assigneeUserIds = trimmed ? [trimmed] : [];
+  } else if (Array.isArray(assignees)) {
+    result.assigneeUserIds = assignees
+      .filter((value) => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  result.startAt = normalizeDateTimeCandidate(result.startAt);
+  result.dueAt = normalizeDateTimeCandidate(result.dueAt);
+
+  return result;
+};
+
 const normalizeDailyStandupCandidate = (candidate: unknown): unknown => {
   if (Array.isArray(candidate)) {
     if (candidate.length === 1) {
@@ -346,6 +416,72 @@ export class GeminiJsonClient {
     ].join("\n");
 
     return this.generateJson(prompt, geminiCardSummaryOutputSchema);
+  }
+
+  async generateCardTriageSuggestions(
+    input: GenerateCardTriageSuggestionsInput
+  ): Promise<GeminiCardTriageOutput> {
+    const promptLabelsExample = JSON.stringify(
+      [
+        { name: "urgent", color: "red" },
+        { name: "planning", color: "blue" }
+      ],
+      null,
+      2
+    );
+
+    const prompt = [
+      "You triage new Kanban cards and propose metadata suggestions.",
+      "Return strict JSON only (no markdown).",
+      "Keys: labels, assigneeUserIds, startAt, dueAt, note.",
+      `labels must be an array of objects with: name (string), color (one of: ${Array.from(CARD_LABEL_COLORS).join(", ")}).`,
+      `Example labels: ${promptLabelsExample}`,
+      "assigneeUserIds must be an array of UUID strings.",
+      "You may ONLY suggest assigning the card to the provided actorUserId. If unclear, return an empty array.",
+      "startAt and dueAt must be ISO 8601 datetimes with a timezone offset (use Z for UTC).",
+      "If uncertain, omit optional fields rather than guessing.",
+      "",
+      `Now (UTC): ${input.nowIso.trim()}`,
+      `Actor user id: ${input.actorUserId.trim()}`,
+      `Card title: ${input.cardTitle.trim()}`,
+      `Card description: ${input.cardDescription?.trim() || "(none provided)"}`
+    ].join("\n");
+
+    const candidate = await this.generateJsonCandidate(prompt);
+    const normalized = normalizeCardTriageCandidate(candidate);
+    return geminiCardTriageOutputSchema.parse(normalized);
+  }
+
+  async generateCardBreakdown(
+    input: GenerateCardBreakdownInput
+  ): Promise<GeminiCardBreakdownOutput> {
+    const promptChecklistExample = JSON.stringify(
+      [
+        { title: "Draft a first-pass outline", isDone: false, position: 0 },
+        { title: "Review with stakeholder", isDone: false, position: 1024 }
+      ],
+      null,
+      2
+    );
+
+    const prompt = [
+      "You break down Kanban cards into actionable checklist proposals.",
+      "Return strict JSON only (no markdown).",
+      "Keys: checklist.",
+      "checklist must be an array of objects with: title (string), isDone (boolean), position (number).",
+      `Example checklist: ${promptChecklistExample}`,
+      "Checklist items must be small, concrete, and specific.",
+      "If focus is provided, prioritize tasks that align with that focus.",
+      "If uncertain, return fewer items rather than vague ones.",
+      "",
+      `Card title: ${input.cardTitle.trim()}`,
+      `Card description: ${input.cardDescription?.trim() || "(none provided)"}`,
+      `Focus: ${input.focus?.trim() || "(none provided)"}`
+    ].join("\n");
+
+    const candidate = await this.generateJsonCandidate(prompt);
+    const normalized = normalizeThreadToCardCandidate(candidate);
+    return geminiCardBreakdownOutputSchema.parse(normalized);
   }
 
   async generateCoverSpec(input: GenerateCoverSpecInput): Promise<CoverSpec> {

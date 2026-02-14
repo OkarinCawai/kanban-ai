@@ -25,6 +25,16 @@ export class AiController {
     return this.aiService.queueCardSummary(context, cardId, body);
   }
 
+  @Post("cards/:cardId/breakdown")
+  async breakDownCard(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("cardId", new ParseUUIDPipe()) cardId: string,
+    @Body() body: unknown
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.queueCardBreakdown(context, cardId, body);
+  }
+
   @Post("cards/:cardId/cover")
   async queueCardCover(
     @Headers() headers: Record<string, string | string[] | undefined>,
@@ -90,6 +100,24 @@ export class AiController {
   ) {
     const context = await toRequestContext(headers);
     return this.aiService.getCardSummary(context, cardId);
+  }
+
+  @Get("cards/:cardId/triage")
+  async getCardTriage(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("cardId", new ParseUUIDPipe()) cardId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.getCardTriageSuggestion(context, cardId);
+  }
+
+  @Get("cards/:cardId/breakdown")
+  async getCardBreakdown(
+    @Headers() headers: Record<string, string | string[] | undefined>,
+    @Param("cardId", new ParseUUIDPipe()) cardId: string
+  ) {
+    const context = await toRequestContext(headers);
+    return this.aiService.getCardBreakdownSuggestion(context, cardId);
   }
 
   @Get("cards/:cardId/cover")

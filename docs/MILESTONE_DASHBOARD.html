@@ -514,43 +514,46 @@
 			            "2026-02-14: Implemented rich card descriptions: JSONB storage + plain-text derivation for search + web-react Tiptap editor."
 			          ]
 			        },
-		        {
-		          id: "M14",
-		          title: "Realtime Collaboration + Presence",
-		          status: "in-progress",
-		          tasks: [
-		            { label: "RLS-safe realtime strategy (events table vs postgres_changes)", done: true },
-		            { label: "Board-scoped sync in web client with fallback", done: true },
-		            { label: "Presence (who is here) UI", done: true },
-		            { label: "Conflict UX aligned with version-based writes", done: true },
-		            { label: "Live verification (two tabs + Realtime enabled)", done: false }
-		          ],
-		          updates: [
-		            "2026-02-12: Planned post-v1: realtime is additive and must not weaken RLS guarantees.",
-		            "2026-02-14: Implemented web-react Supabase Realtime subscriptions (cards/lists/boards) + board presence + polling fallback + conflict refresh."
-		          ]
-		        },
-		        {
-		          id: "M15",
-		          title: "Intelligent Agents (Suggestion-first)",
-		          status: "planned",
-		          tasks: [
-		            { label: "Auto-triage suggestions on card creation", done: false },
-		            { label: "\"Break down with AI\" checklist proposals", done: false },
-		            { label: "User-apply actions (no silent mutations)", done: false },
-		            { label: "Idempotent, retry-safe worker jobs", done: false }
-		          ],
-		          updates: [
-		            "2026-02-12: Planned post-v1: agents produce suggestions first, with explicit user acceptance."
-		          ]
-		        }
-	      ];
+			        {
+			          id: "M14",
+			          title: "Realtime Collaboration + Presence",
+			          status: "completed",
+			          tasks: [
+			            { label: "RLS-safe realtime strategy (events table vs postgres_changes)", done: true },
+			            { label: "Board-scoped sync in web client with fallback", done: true },
+			            { label: "Presence (who is here) UI", done: true },
+			            { label: "Conflict UX aligned with version-based writes", done: true },
+			            { label: "Live verification (two tabs + Realtime enabled)", done: true }
+			          ],
+			          updates: [
+			            "2026-02-12: Planned post-v1: realtime is additive and must not weaken RLS guarantees.",
+			            "2026-02-14: Implemented web-react Supabase Realtime subscriptions (cards/lists/boards) + board presence + polling fallback + conflict refresh.",
+			            "2026-02-14: Enabled supabase_realtime publication for public.boards/lists/cards and confirmed live sync + presence."
+			          ]
+			        },
+			        {
+			          id: "M15",
+			          title: "Intelligent Agents (Suggestion-first)",
+			          status: "completed",
+			          tasks: [
+			            { label: "Auto-triage suggestions on card creation", done: true },
+			            { label: "\"Break down with AI\" checklist proposals", done: true },
+			            { label: "User-apply actions (no silent mutations)", done: true },
+			            { label: "Idempotent, retry-safe worker jobs", done: true }
+			          ],
+			          updates: [
+			            "2026-02-12: Planned post-v1: agents produce suggestions first, with explicit user acceptance.",
+			            "2026-02-14: Implemented suggestion-first agents: auto-triage on card creation + breakdown generator + explicit apply actions in web-react.",
+			            "2026-02-14: Added live verification probes for triage + breakdown via verify-live-stack."
+			          ]
+			        }
+		      ];
 
-	      const TEST_SIGNAL = {
-	        passing: 70,
-	        failing: 0,
-	        verifiedAt: "2026-02-14 (npm test + typecheck after M14 realtime wiring)"
-	      };
+		      const TEST_SIGNAL = {
+		        passing: 70,
+		        failing: 0,
+		        verifiedAt: "2026-02-14 (npm test + typecheck; verify:live:web-react includes M15 agent probes)"
+		      };
 
       const boardEl = document.getElementById("board");
       const totals = {

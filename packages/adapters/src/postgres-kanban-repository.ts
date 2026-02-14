@@ -2,9 +2,11 @@ import {
   askBoardResultSchema,
   boardBlueprintResultSchema,
   boardStuckReportResultSchema,
+  cardBreakdownSuggestionResultSchema,
   cardChecklistItemSchema,
   cardCoverResultSchema,
   cardLabelSchema,
+  cardTriageSuggestionResultSchema,
   cardSearchHitSchema,
   cardSummaryResultSchema,
   dailyStandupResultSchema,
@@ -17,9 +19,11 @@ import {
   type BoardBlueprintResult,
   type BoardStuckReportResult,
   type Card,
+  type CardBreakdownSuggestionResult,
   type CardCoverResult,
   type CardSearchHit,
   type CardSummaryResult,
+  type CardTriageSuggestionResult,
   type DailyStandupResult,
   type KanbanList,
   type SemanticCardSearchResult,
@@ -95,6 +99,24 @@ type DbCardCover = {
   bucket: string | null;
   object_path: string | null;
   content_type: string | null;
+  failure_reason: string | null;
+  updated_at: string | Date;
+};
+
+type DbCardTriageSuggestion = {
+  card_id: string;
+  job_id: string;
+  status: string;
+  suggestions_json: unknown;
+  failure_reason: string | null;
+  updated_at: string | Date;
+};
+
+type DbCardBreakdownSuggestion = {
+  card_id: string;
+  job_id: string;
+  status: string;
+  breakdown_json: unknown;
   failure_reason: string | null;
   updated_at: string | Date;
 };
@@ -311,6 +333,30 @@ const mapCardCover = (row: DbCardCover): CardCoverResult =>
     updatedAt: toIso(row.updated_at)
   });
 
+const mapCardTriageSuggestion = (
+  row: DbCardTriageSuggestion
+): CardTriageSuggestionResult =>
+  cardTriageSuggestionResultSchema.parse({
+    cardId: row.card_id,
+    jobId: row.job_id,
+    status: row.status,
+    suggestions: row.suggestions_json ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
+const mapCardBreakdownSuggestion = (
+  row: DbCardBreakdownSuggestion
+): CardBreakdownSuggestionResult =>
+  cardBreakdownSuggestionResultSchema.parse({
+    cardId: row.card_id,
+    jobId: row.job_id,
+    status: row.status,
+    breakdown: row.breakdown_json ?? undefined,
+    failureReason: row.failure_reason ?? undefined,
+    updatedAt: toIso(row.updated_at)
+  });
+
 const mapAskBoardResult = (row: DbAskBoardResult): AskBoardResult =>
   askBoardResultSchema.parse({
     jobId: row.id,
@@ -518,6 +564,42 @@ export class PostgresKanbanRepository implements KanbanRepository {
       );
 
       return result.rows[0] ? mapCardCover(result.rows[0]) : null;
+    });
+  }
+
+  async findCardTriageSuggestionByCardId(
+    cardId: string
+  ): Promise<CardTriageSuggestionResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbCardTriageSuggestion>(
+        `
+          select card_id, job_id, status, suggestions_json, failure_reason, updated_at
+          from public.card_triage_suggestions
+          where card_id = $1::uuid
+          limit 1
+        `,
+        [cardId]
+      );
+
+      return result.rows[0] ? mapCardTriageSuggestion(result.rows[0]) : null;
+    });
+  }
+
+  async findCardBreakdownSuggestionByCardId(
+    cardId: string
+  ): Promise<CardBreakdownSuggestionResult | null> {
+    return this.withContextTransaction(async (client) => {
+      const result = await client.query<DbCardBreakdownSuggestion>(
+        `
+          select card_id, job_id, status, breakdown_json, failure_reason, updated_at
+          from public.card_breakdown_suggestions
+          where card_id = $1::uuid
+          limit 1
+        `,
+        [cardId]
+      );
+
+      return result.rows[0] ? mapCardBreakdownSuggestion(result.rows[0]) : null;
     });
   }
 
@@ -1440,6 +1522,112 @@ export class PostgresKanbanRepository implements KanbanRepository {
               input.createdCardId ?? null,
               input.sourceEventId ?? null,
               input.failureReason ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertCardTriageSuggestion: async (input) => {
+          await client.query(
+            `
+              insert into public.card_triage_suggestions (
+                card_id,
+                org_id,
+                board_id,
+                job_id,
+                status,
+                suggestions_json,
+                failure_reason,
+                source_event_id,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                $5,
+                $6::jsonb,
+                $7,
+                $8::uuid,
+                now(),
+                $9::timestamptz
+              )
+              on conflict (card_id) do update
+              set
+                org_id = excluded.org_id,
+                board_id = excluded.board_id,
+                job_id = excluded.job_id,
+                status = excluded.status,
+                suggestions_json = excluded.suggestions_json,
+                failure_reason = excluded.failure_reason,
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.cardId,
+              input.orgId,
+              input.boardId,
+              input.jobId,
+              input.status,
+              input.suggestionsJson ? JSON.stringify(input.suggestionsJson) : null,
+              input.failureReason ?? null,
+              input.sourceEventId ?? null,
+              input.updatedAt
+            ]
+          );
+        },
+        upsertCardBreakdownSuggestion: async (input) => {
+          await client.query(
+            `
+              insert into public.card_breakdown_suggestions (
+                card_id,
+                org_id,
+                board_id,
+                requester_user_id,
+                job_id,
+                status,
+                breakdown_json,
+                failure_reason,
+                source_event_id,
+                created_at,
+                updated_at
+              )
+              values (
+                $1::uuid,
+                $2::uuid,
+                $3::uuid,
+                $4::uuid,
+                $5::uuid,
+                $6,
+                $7::jsonb,
+                $8,
+                $9::uuid,
+                now(),
+                $10::timestamptz
+              )
+              on conflict (card_id) do update
+              set
+                org_id = excluded.org_id,
+                board_id = excluded.board_id,
+                requester_user_id = excluded.requester_user_id,
+                job_id = excluded.job_id,
+                status = excluded.status,
+                breakdown_json = excluded.breakdown_json,
+                failure_reason = excluded.failure_reason,
+                source_event_id = excluded.source_event_id,
+                updated_at = excluded.updated_at
+            `,
+            [
+              input.cardId,
+              input.orgId,
+              input.boardId,
+              input.requesterUserId,
+              input.jobId,
+              input.status,
+              input.breakdownJson ? JSON.stringify(input.breakdownJson) : null,
+              input.failureReason ?? null,
+              input.sourceEventId ?? null,
               input.updatedAt
             ]
           );

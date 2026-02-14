@@ -4,9 +4,11 @@ import type {
   BoardBlueprintResult,
   BoardStuckReportResult,
   Card,
+  CardBreakdownSuggestionResult,
   CardCoverResult,
   CardSearchHit,
   CardSummaryResult,
+  CardTriageSuggestionResult,
   DailyStandupResult,
   KanbanList,
   OutboxEvent,
@@ -31,6 +33,8 @@ export class InMemoryKanbanRepository implements KanbanRepository {
   private cards = new Map<string, Card>();
   private cardSummaries = new Map<string, CardSummaryResult>();
   private cardCovers = new Map<string, CardCoverResult>();
+  private cardTriageSuggestions = new Map<string, CardTriageSuggestionResult>();
+  private cardBreakdownSuggestions = new Map<string, CardBreakdownSuggestionResult>();
   private askBoardResults = new Map<string, AskBoardResult>();
   private cardSemanticSearchResults = new Map<string, SemanticCardSearchResult>();
   private boardBlueprintResults = new Map<string, BoardBlueprintResult>();
@@ -62,6 +66,14 @@ export class InMemoryKanbanRepository implements KanbanRepository {
 
   seedCardCover(cover: CardCoverResult): void {
     this.cardCovers.set(cover.cardId, clone(cover));
+  }
+
+  seedCardTriageSuggestion(result: CardTriageSuggestionResult): void {
+    this.cardTriageSuggestions.set(result.cardId, clone(result));
+  }
+
+  seedCardBreakdownSuggestion(result: CardBreakdownSuggestionResult): void {
+    this.cardBreakdownSuggestions.set(result.cardId, clone(result));
   }
 
   seedAskBoardResult(result: AskBoardResult): void {
@@ -115,6 +127,20 @@ export class InMemoryKanbanRepository implements KanbanRepository {
   async findCardCoverByCardId(cardId: string): Promise<CardCoverResult | null> {
     const cover = this.cardCovers.get(cardId);
     return cover ? clone(cover) : null;
+  }
+
+  async findCardTriageSuggestionByCardId(
+    cardId: string
+  ): Promise<CardTriageSuggestionResult | null> {
+    const result = this.cardTriageSuggestions.get(cardId);
+    return result ? clone(result) : null;
+  }
+
+  async findCardBreakdownSuggestionByCardId(
+    cardId: string
+  ): Promise<CardBreakdownSuggestionResult | null> {
+    const result = this.cardBreakdownSuggestions.get(cardId);
+    return result ? clone(result) : null;
   }
 
   async findAskBoardResultByJobId(jobId: string): Promise<AskBoardResult | null> {
@@ -228,6 +254,8 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       cards: new Map(this.cards),
       cardSummaries: new Map(this.cardSummaries),
       cardCovers: new Map(this.cardCovers),
+      cardTriageSuggestions: new Map(this.cardTriageSuggestions),
+      cardBreakdownSuggestions: new Map(this.cardBreakdownSuggestions),
       askBoardResults: new Map(this.askBoardResults),
       cardSemanticSearchResults: new Map(this.cardSemanticSearchResults),
       boardBlueprintResults: new Map(this.boardBlueprintResults),
@@ -534,6 +562,36 @@ export class InMemoryKanbanRepository implements KanbanRepository {
           clone(existing ? { ...existing, ...next } : next)
         );
       },
+	      upsertCardTriageSuggestion: async (input) => {
+	        const suggestions =
+	          input.suggestionsJson as CardTriageSuggestionResult["suggestions"];
+	        this.cardTriageSuggestions.set(
+	          input.cardId,
+	          clone({
+	            cardId: input.cardId,
+	            jobId: input.jobId,
+	            status: input.status,
+	            suggestions: suggestions ?? undefined,
+	            failureReason: input.failureReason ?? undefined,
+	            updatedAt: input.updatedAt
+	          })
+	        );
+	      },
+	      upsertCardBreakdownSuggestion: async (input) => {
+	        const breakdown =
+	          input.breakdownJson as CardBreakdownSuggestionResult["breakdown"];
+	        this.cardBreakdownSuggestions.set(
+	          input.cardId,
+	          clone({
+	            cardId: input.cardId,
+	            jobId: input.jobId,
+	            status: input.status,
+	            breakdown: breakdown ?? undefined,
+	            failureReason: input.failureReason ?? undefined,
+	            updatedAt: input.updatedAt
+	          })
+	        );
+	      },
       appendOutbox: async (event) => {
         this.outboxEvents.push(clone(event));
       }
@@ -547,6 +605,8 @@ export class InMemoryKanbanRepository implements KanbanRepository {
       this.cards = snapshot.cards;
       this.cardSummaries = snapshot.cardSummaries;
       this.cardCovers = snapshot.cardCovers;
+      this.cardTriageSuggestions = snapshot.cardTriageSuggestions;
+      this.cardBreakdownSuggestions = snapshot.cardBreakdownSuggestions;
       this.askBoardResults = snapshot.askBoardResults;
       this.cardSemanticSearchResults = snapshot.cardSemanticSearchResults;
       this.boardBlueprintResults = snapshot.boardBlueprintResults;

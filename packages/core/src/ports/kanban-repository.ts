@@ -9,6 +9,8 @@ import type {
   CardChecklistItem,
   CardCoverResult,
   CardLabel,
+  CardTriageSuggestionResult,
+  CardBreakdownSuggestionResult,
   CardSummaryResult,
   KanbanList,
   OutboxEvent,
@@ -224,6 +226,31 @@ export interface UpsertThreadCardExtractionParams {
   updatedAt: string;
 }
 
+export interface UpsertCardTriageSuggestionParams {
+  cardId: string;
+  orgId: string;
+  boardId: string;
+  jobId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  suggestionsJson?: unknown;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
+export interface UpsertCardBreakdownSuggestionParams {
+  cardId: string;
+  orgId: string;
+  boardId: string;
+  requesterUserId: string;
+  jobId: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  breakdownJson?: unknown;
+  failureReason?: string;
+  sourceEventId?: string;
+  updatedAt: string;
+}
+
 export interface KanbanMutationContext {
   createBoard(input: CreateBoardParams): Promise<Board>;
   createList(input: CreateListParams): Promise<KanbanList>;
@@ -239,6 +266,8 @@ export interface KanbanMutationContext {
   upsertDailyStandup(input: UpsertDailyStandupParams): Promise<void>;
   upsertBoardStuckReport(input: UpsertBoardStuckReportParams): Promise<void>;
   upsertThreadCardExtraction(input: UpsertThreadCardExtractionParams): Promise<void>;
+  upsertCardTriageSuggestion(input: UpsertCardTriageSuggestionParams): Promise<void>;
+  upsertCardBreakdownSuggestion(input: UpsertCardBreakdownSuggestionParams): Promise<void>;
   appendOutbox(event: OutboxEvent): Promise<void>;
 }
 
@@ -255,6 +284,10 @@ export interface KanbanRepository {
   findDailyStandupByBoardId(boardId: string): Promise<DailyStandupResult | null>;
   findBoardStuckReportByBoardId(boardId: string): Promise<BoardStuckReportResult | null>;
   findThreadToCardResultByJobId(jobId: string): Promise<ThreadToCardResult | null>;
+  findCardTriageSuggestionByCardId(cardId: string): Promise<CardTriageSuggestionResult | null>;
+  findCardBreakdownSuggestionByCardId(
+    cardId: string
+  ): Promise<CardBreakdownSuggestionResult | null>;
   listListsByBoardId(boardId: string): Promise<KanbanList[]>;
   listCardsByBoardId(boardId: string): Promise<Card[]>;
   searchCardsByBoardId(

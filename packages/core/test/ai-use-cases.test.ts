@@ -7,9 +7,11 @@ import type {
   BoardBlueprintResult,
   BoardStuckReportResult,
   Card,
+  CardBreakdownSuggestionResult,
   CardCoverResult,
   CardSearchHit,
   CardSummaryResult,
+  CardTriageSuggestionResult,
   DailyStandupResult,
   KanbanList,
   OutboxEvent,
@@ -32,6 +34,8 @@ class FakeRepository implements KanbanRepository {
   private cards = new Map<string, Card>();
   private cardSummaries = new Map<string, CardSummaryResult>();
   private cardCovers = new Map<string, CardCoverResult>();
+  private cardTriageSuggestions = new Map<string, CardTriageSuggestionResult>();
+  private cardBreakdownSuggestions = new Map<string, CardBreakdownSuggestionResult>();
   private askResults = new Map<string, AskBoardResult>();
   private semanticSearchResults = new Map<string, SemanticCardSearchResult>();
   private boardBlueprintResults = new Map<string, BoardBlueprintResult>();
@@ -59,6 +63,14 @@ class FakeRepository implements KanbanRepository {
 
   seedCardSummary(summary: CardSummaryResult): void {
     this.cardSummaries.set(summary.cardId, summary);
+  }
+
+  seedCardTriageSuggestion(result: CardTriageSuggestionResult): void {
+    this.cardTriageSuggestions.set(result.cardId, result);
+  }
+
+  seedCardBreakdownSuggestion(result: CardBreakdownSuggestionResult): void {
+    this.cardBreakdownSuggestions.set(result.cardId, result);
   }
 
   seedAskResult(result: AskBoardResult): void {
@@ -139,6 +151,18 @@ class FakeRepository implements KanbanRepository {
     return this.threadResults.get(jobId) ?? null;
   }
 
+  async findCardTriageSuggestionByCardId(
+    cardId: string
+  ): Promise<CardTriageSuggestionResult | null> {
+    return this.cardTriageSuggestions.get(cardId) ?? null;
+  }
+
+  async findCardBreakdownSuggestionByCardId(
+    cardId: string
+  ): Promise<CardBreakdownSuggestionResult | null> {
+    return this.cardBreakdownSuggestions.get(cardId) ?? null;
+  }
+
   async listListsByBoardId(_boardId: string): Promise<KanbanList[]> {
     return [];
   }
@@ -161,6 +185,8 @@ class FakeRepository implements KanbanRepository {
       outbox: [...this.outbox],
       cardSummaries: new Map(this.cardSummaries),
       cardCovers: new Map(this.cardCovers),
+      cardTriageSuggestions: new Map(this.cardTriageSuggestions),
+      cardBreakdownSuggestions: new Map(this.cardBreakdownSuggestions),
       askResults: new Map(this.askResults),
       semanticSearchResults: new Map(this.semanticSearchResults),
       boardBlueprintResults: new Map(this.boardBlueprintResults),
@@ -340,6 +366,26 @@ class FakeRepository implements KanbanRepository {
           updatedAt: input.updatedAt
         });
       },
+      upsertCardTriageSuggestion: async (input) => {
+        this.cardTriageSuggestions.set(input.cardId, {
+          cardId: input.cardId,
+          jobId: input.jobId,
+          status: input.status,
+          suggestions: input.suggestionsJson as CardTriageSuggestionResult["suggestions"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        });
+      },
+      upsertCardBreakdownSuggestion: async (input) => {
+        this.cardBreakdownSuggestions.set(input.cardId, {
+          cardId: input.cardId,
+          jobId: input.jobId,
+          status: input.status,
+          breakdown: input.breakdownJson as CardBreakdownSuggestionResult["breakdown"] | undefined,
+          failureReason: input.failureReason,
+          updatedAt: input.updatedAt
+        });
+      },
       appendOutbox: async (event) => {
         this.outbox.push(event);
       }
@@ -354,6 +400,8 @@ class FakeRepository implements KanbanRepository {
       this.outbox = snapshot.outbox;
       this.cardSummaries = snapshot.cardSummaries;
       this.cardCovers = snapshot.cardCovers;
+      this.cardTriageSuggestions = snapshot.cardTriageSuggestions;
+      this.cardBreakdownSuggestions = snapshot.cardBreakdownSuggestions;
       this.askResults = snapshot.askResults;
       this.semanticSearchResults = snapshot.semanticSearchResults;
       this.boardBlueprintResults = snapshot.boardBlueprintResults;
@@ -410,6 +458,87 @@ test("core-ai: queue card summary writes ai outbox event", async () => {
   assert.equal(accepted.eventType, "ai.card-summary.requested");
   assert.equal(repository.getOutbox().length, 1);
   assert.equal(repository.getOutbox()[0]?.type, "ai.card-summary.requested");
+});
+
+test("core-ai: queue card breakdown writes ai outbox event and persists queued state", async () => {
+  const repository = new FakeRepository();
+  repository.seedCard({
+    id: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    boardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    listId: "f917f2fb-4d63-4634-9b6f-08b9954d9b79",
+    title: "Card",
+    position: 1,
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const accepted = await useCases.queueCardBreakdown(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    { focus: "production-ready checklist" }
+  );
+
+  assert.equal(accepted.eventType, "ai.card-breakdown.requested");
+  assert.equal(repository.getOutbox().length, 1);
+  assert.equal(repository.getOutbox()[0]?.type, "ai.card-breakdown.requested");
+
+  const queued = await useCases.getCardBreakdownSuggestion(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "editor"
+    },
+    "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb"
+  );
+
+  assert.equal(queued.status, "queued");
+  assert.equal(queued.jobId, accepted.jobId);
+});
+
+test("core-ai: get card triage suggestions returns stored result", async () => {
+  const repository = new FakeRepository();
+  repository.seedCard({
+    id: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+    boardId: "bc56cb70-d38d-4621-b9e3-9b01823f6a95",
+    listId: "f917f2fb-4d63-4634-9b6f-08b9954d9b79",
+    title: "Card",
+    position: 1,
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+  repository.seedCardTriageSuggestion({
+    cardId: "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb",
+    jobId: "00000000-0000-0000-0000-000000000099",
+    status: "completed",
+    suggestions: {
+      labels: [{ name: "urgent", color: "red" }],
+      note: "Suggested based on title."
+    },
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+  const result = await useCases.getCardTriageSuggestion(
+    {
+      userId: "90ce8e2f-dde2-4ac2-804f-f1ec3c955a2a",
+      orgId: "79de6cc2-e8fd-457e-bdc7-0fb591ff53d6",
+      role: "viewer"
+    },
+    "4b70aa89-ce7d-4962-84ac-c673b6fe4aeb"
+  );
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.suggestions?.labels?.[0]?.name, "urgent");
 });
 
 test("core-ai: queue card cover writes cover outbox event", async () => {

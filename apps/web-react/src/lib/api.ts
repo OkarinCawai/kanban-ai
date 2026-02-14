@@ -10,13 +10,16 @@ import {
   confirmBoardBlueprintInputSchema,
   coverJobAcceptedSchema,
   cardCoverResultSchema,
+  cardBreakdownSuggestionResultSchema,
   cardSchema,
   cardSummaryResultSchema,
+  cardTriageSuggestionResultSchema,
   createBoardInputSchema,
   createCardInputSchema,
   createListInputSchema,
   listSchema,
   moveCardInputSchema,
+  queueCardBreakdownInputSchema,
   queueCardCoverInputSchema,
   queueCardSummaryInputSchema,
   queueBoardBlueprintInputSchema,
@@ -214,12 +217,35 @@ export const createApiClient = (context: ApiContext) => ({
       inputSchema: queueCardSummaryInputSchema,
       outputSchema: aiJobAcceptedSchema
     }),
+  queueCardBreakdown: (cardId: string, input: unknown) =>
+    callApi({
+      context,
+      path: `/cards/${encodeURIComponent(cardId)}/breakdown`,
+      method: "POST",
+      input,
+      inputSchema: queueCardBreakdownInputSchema,
+      outputSchema: aiJobAcceptedSchema
+    }),
   getCardSummary: (cardId: string) =>
     callApi({
       context,
       path: `/cards/${encodeURIComponent(cardId)}/summary`,
       method: "GET",
       outputSchema: cardSummaryResultSchema
+    }),
+  getCardTriageSuggestion: (cardId: string) =>
+    callApi({
+      context,
+      path: `/cards/${encodeURIComponent(cardId)}/triage`,
+      method: "GET",
+      outputSchema: cardTriageSuggestionResultSchema
+    }),
+  getCardBreakdownSuggestion: (cardId: string) =>
+    callApi({
+      context,
+      path: `/cards/${encodeURIComponent(cardId)}/breakdown`,
+      method: "GET",
+      outputSchema: cardBreakdownSuggestionResultSchema
     }),
   queueCardCover: (cardId: string, input: unknown) =>
     callApi({

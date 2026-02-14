@@ -21,9 +21,14 @@ class FakeRepository implements KanbanRepository {
   private lists = new Map<string, KanbanList>();
   private cards = new Map<string, Card>();
   private outbox: OutboxEvent[] = [];
+  private triageUpserts: unknown[] = [];
 
   getOutbox(): OutboxEvent[] {
     return [...this.outbox];
+  }
+
+  getTriageUpserts(): unknown[] {
+    return [...this.triageUpserts];
   }
 
   seedBoard(board: Board): void {
@@ -86,6 +91,14 @@ class FakeRepository implements KanbanRepository {
     return null;
   }
 
+  async findCardTriageSuggestionByCardId(_cardId: string): Promise<null> {
+    return null;
+  }
+
+  async findCardBreakdownSuggestionByCardId(_cardId: string): Promise<null> {
+    return null;
+  }
+
   async listListsByBoardId(boardId: string): Promise<KanbanList[]> {
     return Array.from(this.lists.values())
       .filter((list) => list.boardId === boardId)
@@ -109,7 +122,8 @@ class FakeRepository implements KanbanRepository {
       boards: new Map(this.boards),
       lists: new Map(this.lists),
       cards: new Map(this.cards),
-      outbox: [...this.outbox]
+      outbox: [...this.outbox],
+      triageUpserts: [...this.triageUpserts]
     };
 
     const tx: KanbanMutationContext = {
@@ -268,6 +282,12 @@ class FakeRepository implements KanbanRepository {
       upsertThreadCardExtraction: async () => {
         // Not used in Kanban use-case tests.
       },
+      upsertCardTriageSuggestion: async (input) => {
+        this.triageUpserts.push(input);
+      },
+      upsertCardBreakdownSuggestion: async () => {
+        // Not used in Kanban use-case tests.
+      },
       appendOutbox: async (event) => {
         this.outbox.push(event);
       }
@@ -280,6 +300,7 @@ class FakeRepository implements KanbanRepository {
       this.lists = snapshot.lists;
       this.cards = snapshot.cards;
       this.outbox = snapshot.outbox;
+      this.triageUpserts = snapshot.triageUpserts;
       throw error;
     }
   }
@@ -349,6 +370,50 @@ test("core: create list blocks cross-org access", async () => {
       ),
     NotFoundError
   );
+});
+
+test("core: create card enqueues triage suggestions job", async () => {
+  const repository = new FakeRepository();
+  repository.seedBoard({
+    id: "board-1",
+    orgId: "org-1",
+    title: "Roadmap",
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+  repository.seedList({
+    id: "list-1",
+    orgId: "org-1",
+    boardId: "board-1",
+    title: "Todo",
+    position: 0,
+    version: 0,
+    createdAt: staticNow,
+    updatedAt: staticNow
+  });
+
+  const useCases = createUseCases(repository);
+
+  const card = await useCases.createCard(
+    { userId: "u-1", orgId: "org-1", role: "editor" },
+    { listId: "list-1", title: "Implement API" }
+  );
+
+  const outbox = repository.getOutbox();
+  assert.equal(outbox.length, 2);
+  assert.equal(outbox[0]?.type, "card.created");
+  assert.equal(outbox[1]?.type, "ai.card-triage.requested");
+
+  const triagePayload = (outbox[1]?.payload ?? {}) as Record<string, unknown>;
+  assert.equal(triagePayload.cardId, card.id);
+  assert.equal(triagePayload.actorUserId, "u-1");
+
+  const triageUpsert = repository.getTriageUpserts()[0] as Record<string, unknown> | undefined;
+  assert.ok(triageUpsert);
+  assert.equal(triageUpsert.cardId, card.id);
+  assert.equal(triageUpsert.jobId, triagePayload.jobId);
+  assert.equal(triageUpsert.status, "queued");
 });
 
 test("core: move card enforces optimistic concurrency", async () => {

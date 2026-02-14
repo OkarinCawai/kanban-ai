@@ -345,6 +345,7 @@ export class KanbanUseCases {
     const now = this.deps.clock.nowIso();
     const cardId = this.deps.idGenerator.next("card");
     const eventId = this.deps.idGenerator.next("evt");
+    const triageEventId = this.deps.idGenerator.next("evt");
     const resolvedDescription = resolveCardDescription({
       description: parsed.description,
       descriptionRich: parsed.descriptionRich
@@ -380,6 +381,28 @@ export class KanbanUseCases {
         orgId: list.orgId,
         boardId: list.boardId,
         payload: {
+          cardId: card.id,
+          actorUserId: context.userId
+        },
+        createdAt: now
+      });
+
+      await tx.upsertCardTriageSuggestion({
+        cardId: card.id,
+        orgId: list.orgId,
+        boardId: list.boardId,
+        jobId: triageEventId,
+        status: "queued",
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: triageEventId,
+        type: outboxEventTypeSchema.parse("ai.card-triage.requested"),
+        orgId: list.orgId,
+        boardId: list.boardId,
+        payload: {
+          jobId: triageEventId,
           cardId: card.id,
           actorUserId: context.userId
         },

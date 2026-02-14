@@ -3,8 +3,10 @@ import crypto from "node:crypto";
 import {
   aiAskBoardRequestedPayloadSchema,
   aiBoardBlueprintRequestedPayloadSchema,
+  aiCardBreakdownRequestedPayloadSchema,
   aiCardSummaryRequestedPayloadSchema,
   aiCardSemanticSearchRequestedPayloadSchema,
+  aiCardTriageRequestedPayloadSchema,
   aiDailyStandupRequestedPayloadSchema,
   aiThreadToCardRequestedPayloadSchema,
   aiWeeklyRecapRequestedPayloadSchema,
@@ -15,8 +17,10 @@ import {
   roleSchema,
   type AiAskBoardRequestedPayload,
   type AiBoardBlueprintRequestedPayload,
+  type AiCardBreakdownRequestedPayload,
   type AiCardSummaryRequestedPayload,
   type AiCardSemanticSearchRequestedPayload,
+  type AiCardTriageRequestedPayload,
   type AiDailyStandupRequestedPayload,
   type AiThreadToCardRequestedPayload,
   type AiWeeklyRecapRequestedPayload,
@@ -50,12 +54,14 @@ import {
 
 const OUTBOX_TYPES = [
   "ai.card-summary.requested",
+  "ai.card-triage.requested",
   "ai.ask-board.requested",
   "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
   "ai.card-semantic-search.requested",
+  "ai.card-breakdown.requested",
   "cover.generate-spec.requested",
   "cover.render.requested",
   "hygiene.detect-stuck.requested"
@@ -63,12 +69,14 @@ const OUTBOX_TYPES = [
 
 const OUTBOX_TYPES_REQUIRING_GEMINI: ReadonlySet<(typeof OUTBOX_TYPES)[number]> = new Set([
   "ai.card-summary.requested",
+  "ai.card-triage.requested",
   "ai.ask-board.requested",
   "ai.board-blueprint.requested",
   "ai.thread-to-card.requested",
   "ai.weekly-recap.requested",
   "ai.daily-standup.requested",
   "ai.card-semantic-search.requested",
+  "ai.card-breakdown.requested",
   "cover.generate-spec.requested"
 ]);
 
@@ -271,12 +279,20 @@ type ParsedOutboxEvent =
       payload: AiCardSummaryRequestedPayload;
     }
   | {
+      type: "ai.card-triage.requested";
+      payload: AiCardTriageRequestedPayload;
+    }
+  | {
       type: "ai.ask-board.requested";
       payload: AiAskBoardRequestedPayload;
     }
   | {
       type: "ai.card-semantic-search.requested";
       payload: AiCardSemanticSearchRequestedPayload;
+    }
+  | {
+      type: "ai.card-breakdown.requested";
+      payload: AiCardBreakdownRequestedPayload;
     }
   | {
       type: "ai.board-blueprint.requested";
@@ -548,6 +564,24 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (event.type === "ai.card-triage.requested") {
+      await client.query(
+        `
+          update public.card_triage_suggestions
+          set
+            status = 'failed',
+            suggestions_json = null,
+            failure_reason = $4,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [event.payload.cardId, row.org_id, event.payload.jobId, truncated]
+      );
+      return;
+    }
+
     if (event.type === "ai.ask-board.requested") {
       await client.query(
         `
@@ -577,6 +611,24 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
             and org_id = $2::uuid
         `,
         [event.payload.jobId, row.org_id, truncated]
+      );
+      return;
+    }
+
+    if (event.type === "ai.card-breakdown.requested") {
+      await client.query(
+        `
+          update public.card_breakdown_suggestions
+          set
+            status = 'failed',
+            breakdown_json = null,
+            failure_reason = $4,
+            updated_at = now()
+          where card_id = $1::uuid
+            and org_id = $2::uuid
+            and job_id = $3::uuid
+        `,
+        [event.payload.cardId, row.org_id, event.payload.jobId, truncated]
       );
       return;
     }
@@ -689,6 +741,13 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       };
     }
 
+    if (row.type === "ai.card-triage.requested") {
+      return {
+        type: row.type,
+        payload: aiCardTriageRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
     if (row.type === "ai.ask-board.requested") {
       return {
         type: row.type,
@@ -700,6 +759,13 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       return {
         type: row.type,
         payload: aiCardSemanticSearchRequestedPayloadSchema.parse(row.payload)
+      };
+    }
+
+    if (row.type === "ai.card-breakdown.requested") {
+      return {
+        type: row.type,
+        payload: aiCardBreakdownRequestedPayloadSchema.parse(row.payload)
       };
     }
 
@@ -765,6 +831,11 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (event.type === "ai.card-triage.requested") {
+      await this.executeCardTriage(client, row, event.payload);
+      return;
+    }
+
     if (event.type === "ai.ask-board.requested") {
       await this.executeAskBoard(client, row, event.payload);
       return;
@@ -772,6 +843,11 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
 
     if (event.type === "ai.card-semantic-search.requested") {
       await this.executeCardSemanticSearch(client, row, event.payload);
+      return;
+    }
+
+    if (event.type === "ai.card-breakdown.requested") {
+      await this.executeCardBreakdown(client, row, event.payload);
       return;
     }
 
@@ -878,6 +954,271 @@ export class OutboxPollerService implements OnModuleInit, OnModuleDestroy {
       title: card.title,
       content: this.composeCardContent(card)
     });
+  }
+
+  private async executeCardTriage(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiCardTriageRequestedPayload
+  ): Promise<void> {
+    const cardResult = await client.query<CardRow>(
+      `
+        select
+          id,
+          board_id,
+          title,
+          description,
+          start_at,
+          due_at,
+          location_text,
+          location_url,
+          assignee_user_ids,
+          labels_json,
+          checklist_json,
+          comment_count,
+          attachment_count
+        from public.cards
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const card = cardResult.rows[0];
+    if (!card) {
+      throw new Error(`Card ${payload.cardId} not found for triage generation.`);
+    }
+
+    const suggestionResult = await client.query<{
+      card_id: string;
+      job_id: string;
+      status: string;
+      suggestions_json: unknown;
+    }>(
+      `
+        select card_id, job_id, status, suggestions_json
+        from public.card_triage_suggestions
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const existing = suggestionResult.rows[0];
+    if (existing && existing.job_id !== payload.jobId) {
+      return;
+    }
+
+    if (existing && existing.status === "completed" && existing.suggestions_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        insert into public.card_triage_suggestions (
+          card_id,
+          org_id,
+          board_id,
+          job_id,
+          status,
+          suggestions_json,
+          failure_reason,
+          source_event_id,
+          created_at,
+          updated_at
+        )
+        values (
+          $1::uuid,
+          $2::uuid,
+          $3::uuid,
+          $4::uuid,
+          'processing',
+          null,
+          null,
+          null,
+          now(),
+          now()
+        )
+        on conflict (card_id) do update
+        set
+          org_id = excluded.org_id,
+          board_id = excluded.board_id,
+          job_id = excluded.job_id,
+          status = 'processing',
+          suggestions_json = null,
+          failure_reason = null,
+          updated_at = now()
+      `,
+      [payload.cardId, row.org_id, card.board_id, payload.jobId]
+    );
+
+    if (!this.geminiClient) {
+      throw new Error("Gemini client is not initialized.");
+    }
+
+    const triage = await this.geminiClient.generateCardTriageSuggestions({
+      cardTitle: card.title,
+      cardDescription: card.description ?? undefined,
+      actorUserId: payload.actorUserId,
+      nowIso: new Date().toISOString()
+    });
+
+    const assigneeUserIds = triage.assigneeUserIds?.includes(payload.actorUserId)
+      ? [payload.actorUserId]
+      : [];
+
+    const suggestions = {
+      ...triage,
+      assigneeUserIds
+    };
+
+    await client.query(
+      `
+        update public.card_triage_suggestions
+        set
+          status = 'completed',
+          suggestions_json = $4::jsonb,
+          failure_reason = null,
+          source_event_id = $5::uuid,
+          updated_at = now()
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+          and job_id = $3::uuid
+      `,
+      [payload.cardId, row.org_id, payload.jobId, JSON.stringify(suggestions), row.id]
+    );
+  }
+
+  private async executeCardBreakdown(
+    client: PoolClient,
+    row: OutboxRow,
+    payload: AiCardBreakdownRequestedPayload
+  ): Promise<void> {
+    const cardResult = await client.query<CardRow>(
+      `
+        select
+          id,
+          board_id,
+          title,
+          description,
+          start_at,
+          due_at,
+          location_text,
+          location_url,
+          assignee_user_ids,
+          labels_json,
+          checklist_json,
+          comment_count,
+          attachment_count
+        from public.cards
+        where id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const card = cardResult.rows[0];
+    if (!card) {
+      throw new Error(`Card ${payload.cardId} not found for breakdown generation.`);
+    }
+
+    const suggestionResult = await client.query<{
+      card_id: string;
+      job_id: string;
+      status: string;
+      breakdown_json: unknown;
+    }>(
+      `
+        select card_id, job_id, status, breakdown_json
+        from public.card_breakdown_suggestions
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+        limit 1
+        for update
+      `,
+      [payload.cardId, row.org_id]
+    );
+
+    const existing = suggestionResult.rows[0];
+    if (existing && existing.job_id !== payload.jobId) {
+      return;
+    }
+
+    if (existing && existing.status === "completed" && existing.breakdown_json) {
+      return;
+    }
+
+    await client.query(
+      `
+        insert into public.card_breakdown_suggestions (
+          card_id,
+          org_id,
+          board_id,
+          requester_user_id,
+          job_id,
+          status,
+          breakdown_json,
+          failure_reason,
+          source_event_id,
+          created_at,
+          updated_at
+        )
+        values (
+          $1::uuid,
+          $2::uuid,
+          $3::uuid,
+          $4::uuid,
+          $5::uuid,
+          'processing',
+          null,
+          null,
+          null,
+          now(),
+          now()
+        )
+        on conflict (card_id) do update
+        set
+          org_id = excluded.org_id,
+          board_id = excluded.board_id,
+          requester_user_id = excluded.requester_user_id,
+          job_id = excluded.job_id,
+          status = 'processing',
+          breakdown_json = null,
+          failure_reason = null,
+          updated_at = now()
+      `,
+      [payload.cardId, row.org_id, card.board_id, payload.actorUserId, payload.jobId]
+    );
+
+    if (!this.geminiClient) {
+      throw new Error("Gemini client is not initialized.");
+    }
+
+    const breakdown = await this.geminiClient.generateCardBreakdown({
+      cardTitle: card.title,
+      cardDescription: card.description ?? undefined,
+      focus: payload.focus
+    });
+
+    await client.query(
+      `
+        update public.card_breakdown_suggestions
+        set
+          status = 'completed',
+          breakdown_json = $4::jsonb,
+          failure_reason = null,
+          source_event_id = $5::uuid,
+          updated_at = now()
+        where card_id = $1::uuid
+          and org_id = $2::uuid
+          and job_id = $3::uuid
+      `,
+      [payload.cardId, row.org_id, payload.jobId, JSON.stringify(breakdown), row.id]
+    );
   }
 
   private async executeAskBoard(

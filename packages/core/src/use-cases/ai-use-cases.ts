@@ -3,6 +3,8 @@ import {
   aiJobAcceptedSchema,
   boardBlueprintConfirmResponseSchema,
   boardBlueprintResultSchema,
+  cardBreakdownSuggestionResultSchema,
+  cardTriageSuggestionResultSchema,
   cardSummaryResultSchema,
   cardCoverResultSchema,
   coverJobAcceptedSchema,
@@ -11,6 +13,7 @@ import {
   confirmThreadToCardInputSchema,
   dailyStandupResultSchema,
   outboxEventTypeSchema,
+  queueCardBreakdownInputSchema,
   queueCardSummaryInputSchema,
   queueCardCoverInputSchema,
   queueBoardBlueprintInputSchema,
@@ -168,6 +171,56 @@ export class AiUseCases {
     return aiJobAcceptedSchema.parse({
       jobId,
       eventType: "ai.card-summary.requested",
+      status: "queued",
+      queuedAt: now
+    });
+  }
+
+  async queueCardBreakdown(
+    context: RequestContext,
+    cardId: string,
+    input: unknown
+  ) {
+    ensureCanWrite(context);
+    const parsed = parseOrThrow(queueCardBreakdownInputSchema, input ?? {});
+
+    const card = await this.deps.repository.findCardById(cardId);
+    if (!card || card.orgId !== context.orgId) {
+      throw new NotFoundError("Card was not found in your organization.");
+    }
+
+    const now = this.deps.clock.nowIso();
+    const jobId = this.deps.idGenerator.next("evt");
+
+    await this.deps.repository.runInTransaction(async (tx) => {
+      await tx.upsertCardBreakdownSuggestion({
+        cardId: card.id,
+        orgId: context.orgId,
+        boardId: card.boardId,
+        requesterUserId: context.userId,
+        jobId,
+        status: "queued",
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: jobId,
+        type: outboxEventTypeSchema.parse("ai.card-breakdown.requested"),
+        orgId: context.orgId,
+        boardId: card.boardId,
+        payload: {
+          jobId,
+          cardId: card.id,
+          actorUserId: context.userId,
+          focus: parsed.focus
+        },
+        createdAt: now
+      });
+    });
+
+    return aiJobAcceptedSchema.parse({
+      jobId,
+      eventType: "ai.card-breakdown.requested",
       status: "queued",
       queuedAt: now
     });
@@ -570,6 +623,40 @@ export class AiUseCases {
     return cardSummaryResultSchema.parse(summary);
   }
 
+  async getCardTriageSuggestion(
+    context: RequestContext,
+    cardId: string
+  ) {
+    const card = await this.deps.repository.findCardById(cardId);
+    if (!card || card.orgId !== context.orgId) {
+      throw new NotFoundError("Card was not found in your organization.");
+    }
+
+    const triage = await this.deps.repository.findCardTriageSuggestionByCardId(card.id);
+    if (!triage) {
+      throw new NotFoundError("Card triage suggestions were not found.");
+    }
+
+    return cardTriageSuggestionResultSchema.parse(triage);
+  }
+
+  async getCardBreakdownSuggestion(
+    context: RequestContext,
+    cardId: string
+  ) {
+    const card = await this.deps.repository.findCardById(cardId);
+    if (!card || card.orgId !== context.orgId) {
+      throw new NotFoundError("Card was not found in your organization.");
+    }
+
+    const breakdown = await this.deps.repository.findCardBreakdownSuggestionByCardId(card.id);
+    if (!breakdown) {
+      throw new NotFoundError("Card breakdown suggestions were not found.");
+    }
+
+    return cardBreakdownSuggestionResultSchema.parse(breakdown);
+  }
+
   async getAskBoardResult(
     context: RequestContext,
     jobId: string
@@ -777,6 +864,7 @@ export class AiUseCases {
         for (const [cardIndex, cardDraft] of listDraft.cards.entries()) {
           const cardId = this.deps.idGenerator.next("card");
           const cardEventId = this.deps.idGenerator.next("evt");
+          const triageEventId = this.deps.idGenerator.next("evt");
           const position = cardIndex * 1024;
 
           const card = await tx.createCard({
@@ -804,6 +892,28 @@ export class AiUseCases {
             orgId: context.orgId,
             boardId: board.id,
             payload: {
+              cardId: card.id,
+              actorUserId: context.userId
+            },
+            createdAt: now
+          });
+
+          await tx.upsertCardTriageSuggestion({
+            cardId: card.id,
+            orgId: context.orgId,
+            boardId: board.id,
+            jobId: triageEventId,
+            status: "queued",
+            updatedAt: now
+          });
+
+          await tx.appendOutbox({
+            id: triageEventId,
+            type: outboxEventTypeSchema.parse("ai.card-triage.requested"),
+            orgId: context.orgId,
+            boardId: board.id,
+            payload: {
+              jobId: triageEventId,
               cardId: card.id,
               actorUserId: context.userId
             },
@@ -875,6 +985,7 @@ export class AiUseCases {
     const now = this.deps.clock.nowIso();
     const cardId = this.deps.idGenerator.next("card");
     const eventId = this.deps.idGenerator.next("evt");
+    const triageEventId = this.deps.idGenerator.next("evt");
     const position = Date.parse(now);
     const nextTitle = parsed.title ?? extraction.draft.title;
     const nextDescription =
@@ -913,6 +1024,28 @@ export class AiUseCases {
         orgId: created.orgId,
         boardId: created.boardId,
         payload: {
+          cardId: created.id,
+          actorUserId: context.userId
+        },
+        createdAt: now
+      });
+
+      await tx.upsertCardTriageSuggestion({
+        cardId: created.id,
+        orgId: created.orgId,
+        boardId: created.boardId,
+        jobId: triageEventId,
+        status: "queued",
+        updatedAt: now
+      });
+
+      await tx.appendOutbox({
+        id: triageEventId,
+        type: outboxEventTypeSchema.parse("ai.card-triage.requested"),
+        orgId: created.orgId,
+        boardId: created.boardId,
+        payload: {
+          jobId: triageEventId,
           cardId: created.id,
           actorUserId: context.userId
         },

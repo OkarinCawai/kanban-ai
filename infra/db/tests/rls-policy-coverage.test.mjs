@@ -36,7 +36,9 @@ const requiredTables = [
   "card_semantic_search_requests",
   "documents",
   "document_chunks",
-  "document_embeddings"
+  "document_embeddings",
+  "card_triage_suggestions",
+  "card_breakdown_suggestions"
 ];
 
 test("policy: migration includes required core tables", () => {
@@ -94,7 +96,12 @@ test("policy: board/list/card read and write policies are present", () => {
     "document_chunks_select_policy",
     "document_chunks_write_policy",
     "document_embeddings_select_policy",
-    "document_embeddings_write_policy"
+    "document_embeddings_write_policy",
+    "card_triage_suggestions_select_policy",
+    "card_triage_suggestions_write_policy",
+    "card_breakdown_suggestions_select_policy",
+    "card_breakdown_suggestions_insert_policy",
+    "card_breakdown_suggestions_update_policy"
   ];
 
   for (const policy of requiredPolicies) {

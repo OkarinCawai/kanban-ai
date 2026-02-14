@@ -341,7 +341,7 @@ Exit criteria:
 
 ## Milestone 14: Realtime Collaboration + Presence (Post-v1)
 
-Status (2026-02-14): `in-progress`
+Status (2026-02-14): `completed`
 
 Progress snapshot:
 - [x] Revisit D-008 scope boundary and explicitly accept realtime collaboration as a post-v1 milestone (D-025).
@@ -349,7 +349,7 @@ Progress snapshot:
 - [x] Presence: show "who is here" at board-level (Supabase Presence on board channel).
 - [x] Conflict handling: keep version-based writes; stale writes surface a recoverable UX (refresh on 409).
 - [x] Keep polling as a fallback mode for degraded realtime conditions.
-- [ ] Live verification: enable Realtime for subscribed tables and confirm two-tab sync + presence.
+- [x] Live verification: enable Realtime for subscribed tables and confirm two-tab sync + presence.
 
 Deliverables:
 - Realtime adapter wiring for the web client.
@@ -362,17 +362,19 @@ Exit criteria:
 
 ## Milestone 15: Intelligent Agents (Suggestion-first, Post-v1)
 
-Status (2026-02-12): `planned`
+Status (2026-02-14): `completed`
 
 Progress snapshot:
-- [ ] Auto-triage runs async on card creation and produces suggestions (labels/assignees/dates), not silent mutations.
-- [ ] "Break down with AI" generates proposed checklist items as a job; user chooses to apply.
-- [ ] All agent jobs are retry-safe and idempotent with deterministic keys.
+- [x] Auto-triage runs async on card creation and produces suggestions (labels/assignees/dates), not silent mutations.
+- [x] "Break down with AI" generates proposed checklist items as a job; user chooses to apply.
+- [x] All agent jobs are retry-safe and idempotent with deterministic keys.
+- [x] Live verification: triage + breakdown jobs complete via outbox worker and persist suggestion payloads.
 
 Deliverables:
-- New async job types + status reads.
-- Suggestion storage model with explicit user-apply actions.
-- Tests for idempotency and permission scope.
+- New async job types + status reads (`ai.card-triage.requested`, `ai.card-breakdown.requested`).
+- Suggestion storage model (`card_triage_suggestions`, `card_breakdown_suggestions`) with explicit user-apply actions in web-react.
+- Worker processors for triage + breakdown with schema-validated Gemini JSON output.
+- Tests for idempotency and permission scope + live verification probes.
 
 Exit criteria:
 - Agents improve workflow without surprising users (suggestions first) and never bypass RLS.

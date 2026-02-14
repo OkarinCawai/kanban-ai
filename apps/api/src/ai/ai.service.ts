@@ -55,6 +55,16 @@ export class AiService {
     );
   }
 
+  async queueCardBreakdown(
+    context: RequestContext,
+    cardId: string,
+    payload: unknown
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.queueCardBreakdown(context, cardId, payload))
+    );
+  }
+
   async queueCardCover(
     context: RequestContext,
     cardId: string,
@@ -119,6 +129,24 @@ export class AiService {
   ) {
     return this.runAsContext(context, () =>
       this.execute(() => this.useCases.getCardSummary(context, cardId))
+    );
+  }
+
+  async getCardTriageSuggestion(
+    context: RequestContext,
+    cardId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getCardTriageSuggestion(context, cardId))
+    );
+  }
+
+  async getCardBreakdownSuggestion(
+    context: RequestContext,
+    cardId: string
+  ) {
+    return this.runAsContext(context, () =>
+      this.execute(() => this.useCases.getCardBreakdownSuggestion(context, cardId))
     );
   }
 
